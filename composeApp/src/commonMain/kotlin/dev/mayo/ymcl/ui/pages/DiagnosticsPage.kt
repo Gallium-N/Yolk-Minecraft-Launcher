@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +35,7 @@ import dev.mayo.ymcl.ui.components.OutlinedPillButton
 import dev.mayo.ymcl.ui.components.PageHeader
 import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.TonalButton
+import dev.mayo.ymcl.platform.PathUtil
 
 private val MONO = FontFamily.Monospace
 
@@ -52,6 +54,15 @@ fun DiagnosticsPage(state: AppState) {
             Row(Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
                     ConclusionCard()
+                    state.launchError?.let { error ->
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = error,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Spacer(Modifier.height(16.dp))
                     ActionRow(leftWidth)
                     Spacer(Modifier.height(16.dp))
@@ -60,7 +71,7 @@ fun DiagnosticsPage(state: AppState) {
                     DiagnosticsFooter()
                 }
                 Spacer(Modifier.width(24.dp))
-                RawStackTracePanel(modifier = Modifier.width(rightWidth))
+                RawStackTracePanel(state = state, modifier = Modifier.width(rightWidth))
             }
         }
     }
@@ -240,9 +251,13 @@ private fun DiagnosticsFooter() {
 }
 
 @Composable
-private fun RawStackTracePanel(modifier: Modifier = Modifier) {
+private fun RawStackTracePanel(state: AppState, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
-    val stack = DiagnosticsContent.stackTrace
+    val logs = state.launchLogs
+    val scroll = rememberScrollState()
+    LaunchedEffect(logs.size) {
+        scroll.animateScrollTo(scroll.maxValue)
+    }
 
     Column(
         modifier = modifier
@@ -258,7 +273,7 @@ private fun RawStackTracePanel(modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "原始堆栈",
+                text = "启动日志",
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -274,7 +289,7 @@ private fun RawStackTracePanel(modifier: Modifier = Modifier) {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = stack.fileName,
+                    text = state.logFilePath?.let { PathUtil.fileName(it) } ?: "尚未启动",
                     fontFamily = MONO,
                     fontSize = 10.sp,
                     lineHeight = 14.sp,
@@ -289,59 +304,27 @@ private fun RawStackTracePanel(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scroll)
                 .padding(horizontal = 24.dp),
         ) {
-            stack.lines.forEachIndexed { index, line ->
-                val highlighted = index in stack.highlightedLineIndexes
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (highlighted) {
-                                colors.secondaryContainer.copy(alpha = 0.55f)
-                            } else {
-                                colors.surfaceContainerLow.copy(alpha = 0f)
-                            },
-                        ),
-                ) {
-                    // Narrow panels fold long stack lines; the vertical scroll
-                    // above keeps them inside the fixed 608dp panel.
+            if (logs.isEmpty()) {
+                Text(
+                    text = "启动实例后，HMCLCore 的 stdout/stderr 会实时出现在这里。",
+                    fontFamily = MONO,
+                    fontSize = 10.5.sp,
+                    lineHeight = 18.sp,
+                    color = colors.onSurfaceVariant,
+                )
+            } else {
+                logs.forEach { line ->
                     Text(
                         text = line,
                         fontFamily = MONO,
                         fontSize = 10.5.sp,
-                        lineHeight = 22.sp,
-                        color = if (highlighted) colors.onSecondaryContainer else colors.onSurface,
+                        lineHeight = 20.sp,
+                        color = colors.onSurface,
                     )
                 }
-            }
-
-            Spacer(Modifier.height(16.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(colors.outlineVariant.copy(alpha = 0.5f)),
-            )
-            Spacer(Modifier.height(16.dp))
-
-            Text(
-                text = "自动定位",
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.onSurface,
-            )
-            Spacer(Modifier.height(8.dp))
-            stack.located.forEachIndexed { index, line ->
-                Text(
-                    text = line,
-                    fontFamily = MONO,
-                    fontSize = if (index == 0) 11.sp else 10.5.sp,
-                    lineHeight = 20.sp,
-                    color = if (index == 0) colors.onSurfaceVariant else colors.onSurface,
-                )
             }
         }
     }

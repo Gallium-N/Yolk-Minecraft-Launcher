@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -131,8 +132,10 @@ fun InstancesPage(state: AppState) {
                                 now = now,
                                 columns = columns,
                                 selected = instance.id == state.selectedInstanceId,
+                                running = state.activeInstanceId == instance.id,
                                 onSelect = { state.selectInstance(instance.id) },
                                 onLaunch = { state.launch(instance.id) },
+                                onStop = { state.stop(instance.id) },
                             )
                         }
                     }
@@ -283,8 +286,10 @@ private fun InstanceRow(
     now: Long,
     columns: TableColumns,
     selected: Boolean,
+    running: Boolean,
     onSelect: () -> Unit,
     onLaunch: () -> Unit,
+    onStop: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
@@ -400,11 +405,11 @@ private fun InstanceRow(
                 size = 36.dp,
                 container = colors.primary,
                 contentColor = colors.onPrimary,
-                onClick = onLaunch,
+                onClick = { if (running) onStop() else onLaunch() },
             ) {
                 Icon(
-                    Icons.Filled.PlayArrow,
-                    contentDescription = "启动",
+                    if (running) Icons.Filled.Close else Icons.Filled.PlayArrow,
+                    contentDescription = if (running) "停止" else "启动",
                     tint = colors.onPrimary,
                     modifier = Modifier.size(18.dp),
                 )

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -74,6 +75,10 @@ fun HomePage(state: AppState) {
                 heroHeight = heroHeight,
                 statSpacing = statSpacing,
             )
+            state.launchError?.let { error ->
+                Spacer(Modifier.height(16.dp))
+                LaunchErrorCard(error)
+            }
             Spacer(Modifier.height(if (compact) 16.dp else 24.dp))
             Row(Modifier.fillMaxWidth()) {
                 RecentInstancesColumn(
@@ -101,6 +106,7 @@ private fun HeroCard(
 ) {
     val colors = MaterialTheme.colorScheme
     val instance = state.mainInstance ?: return
+    val running = state.activeInstanceId == instance.id
     val shape = RoundedCornerShape(24.dp)
     Box(
         modifier = Modifier
@@ -120,7 +126,7 @@ private fun HeroCard(
                 .padding(start = 32.dp, top = 32.dp),
         ) {
             Text(
-                text = "主实例",
+                text = if (running) "主实例 · 运行中" else "主实例",
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
                 color = colors.onPrimaryContainer.copy(alpha = 0.78f),
@@ -167,16 +173,44 @@ private fun HeroCard(
                 size = 72.dp,
                 container = colors.primary,
                 contentColor = colors.onPrimary,
-                onClick = { state.launch(instance.id) },
+                onClick = {
+                    if (running) state.stop(instance.id) else state.launch(instance.id)
+                },
             ) {
                 Icon(
-                    Icons.Filled.PlayArrow,
-                    contentDescription = "启动",
+                    if (running) Icons.Filled.Close else Icons.Filled.PlayArrow,
+                    contentDescription = if (running) "停止" else "启动",
                     tint = colors.onPrimary,
                     modifier = Modifier.size(32.dp),
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LaunchErrorCard(message: String) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.errorContainer)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        Text(
+            text = "启动失败",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onErrorContainer,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = message,
+            fontSize = 12.sp,
+            lineHeight = 18.sp,
+            color = colors.onErrorContainer,
+        )
     }
 }
 
