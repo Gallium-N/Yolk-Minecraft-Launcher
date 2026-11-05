@@ -51,8 +51,10 @@
    并在 `vendor/README.md` 写清来源 commit
 
 ## 第 0 步：侦察（先做，只读，不写代码）
-1. `git clone --depth 1 https://github.com/HMCL-dev/HMCL.git ~/src/HMCL`（或按用户指示的代理方式），
-   记下 `git -C ~/src/HMCL rev-parse --short HEAD` 的 commit
+1. **HMCL 源码已经在 `~/src/ymcl/HMCL`**（已加入 `.gitignore`，不进本仓库）。
+   核对并记录 commit：`git -C HMCL rev-parse --short HEAD`；如果要以它为基础用方案 A，
+   `includeBuild("HMCL")` 即可，**不要移动或重新克隆它**（除非版本太旧，那就先问用户）。
+   若需要更新：`git -C HMCL fetch --depth 1 origin && git -C HMCL checkout <tag>`，同样先问。
 2. 读这三处，然后在报告里列出你实际要用的 API（类名 + 方法签名，附文件路径）：
    - `HMCLCore/src/main/java/org/jackhuang/hmcl/game/DefaultGameRepository.java`
    - `HMCLCore/src/main/java/org/jackhuang/hmcl/java/JavaManager.java`（及 `JavaRuntime` 相关类）
