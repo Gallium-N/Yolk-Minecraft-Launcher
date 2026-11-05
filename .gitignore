@@ -1,0 +1,11 @@
+.gradle/
+.gradle-user-home/
+.kotlin/
+.tmp-gradle/
+build/
+out/
+*.iml
+.idea/
+
+# 外部依赖（HMCL 源码克隆，不进本仓库）
+/HMCL/
