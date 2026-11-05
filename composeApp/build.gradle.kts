@@ -33,6 +33,7 @@ kotlin {
         val desktopMain by getting {
             dependencies {
                 implementation(compose.desktop.currentOs)
+                implementation(project(":hmcl-core"))
             }
         }
         val desktopTest by getting {
