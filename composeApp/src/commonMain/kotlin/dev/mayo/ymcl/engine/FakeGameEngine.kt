@@ -2,17 +2,20 @@ package dev.mayo.ymcl.engine
 
 import dev.mayo.ymcl.domain.Instance
 import dev.mayo.ymcl.domain.InstanceStatus
+import dev.mayo.ymcl.domain.JavaRuntime
 import dev.mayo.ymcl.domain.Loader
 import dev.mayo.ymcl.domain.LoaderKind
 import dev.mayo.ymcl.domain.ModEntry
 import dev.mayo.ymcl.platform.nowMillis
+import kotlinx.coroutines.flow.flowOf
 
 /**
- * In-memory demo data (phase 1). Nothing is written to disk and no game is started.
- * The five names match the design mockups.
+ * In-memory demo data used by tests and previews. The desktop app injects the
+ * real HMCL-backed engine instead.
  */
 class FakeGameEngine : GameEngine {
     private val instances = mutableListOf<Instance>()
+    private val running = mutableSetOf<String>()
 
     init {
         val now = nowMillis()
@@ -70,26 +73,52 @@ class FakeGameEngine : GameEngine {
         )
     }
 
-    override fun listInstances(): List<Instance> = instances.toList()
+    override fun listInstances(gameDir: String): List<Instance> = instances.toList()
 
-    override fun start(instanceId: String): LaunchResult {
-        val index = instances.indexOfFirst { it.id == instanceId }
-        if (index < 0) return LaunchResult.Failed("找不到实例：$instanceId")
-        val current = instances[index]
-        instances[index] = current.copy(
-            status = InstanceStatus.RUNNING,
-            lastLaunchedAt = nowMillis(),
+    override fun detectJava(): List<JavaRuntime> = listOf(
+        JavaRuntime(
+            id = "fake-temurin-21",
+            vendor = "Temurin",
+            major = 21,
+            version = "21.0.13+9",
+            arch = "x64",
+            os = "linux",
+            path = "/usr/lib/jvm/java-21-temurin-jdk/bin/java",
+            source = "detected",
+        ),
+    )
+
+    override fun launch(request: LaunchRequest): LaunchResult {
+        if (instances.none { it.id == request.instanceId }) {
+            return LaunchResult.Failed("找不到实例：${request.instanceId}")
+        }
+        running += request.instanceId
+        refresh()
+        return LaunchResult.Started(
+            LaunchHandle(
+                pid = null,
+                logFile = "",
+                logs = flowOf("YMCL fake engine: ${request.instanceId}", "Setting user: Player"),
+                exitCode = flowOf(0),
+            ),
         )
-        return LaunchResult.Started(pid = null)
     }
 
+    override fun awaitExit(instanceId: String): Int = 0
+
     override fun stop(instanceId: String): Boolean {
-        val index = instances.indexOfFirst { it.id == instanceId }
-        if (index < 0) return false
-        val current = instances[index]
-        if (current.status != InstanceStatus.RUNNING) return false
-        instances[index] = current.copy(status = InstanceStatus.READY)
+        if (!running.remove(instanceId)) return false
+        refresh()
         return true
+    }
+
+    private fun refresh() {
+        for (index in instances.indices) {
+            val current = instances[index]
+            instances[index] = current.copy(
+                status = if (current.id in running) InstanceStatus.RUNNING else InstanceStatus.READY,
+            )
+        }
     }
 
     private fun fakeMods(count: Int): List<ModEntry> = List(count) { index ->

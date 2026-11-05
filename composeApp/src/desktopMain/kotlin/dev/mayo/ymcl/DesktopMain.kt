@@ -6,6 +6,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import dev.mayo.ymcl.app.AppState
+import dev.mayo.ymcl.engine.HmclEngine
 import dev.mayo.ymcl.ui.YmclApp
 import java.awt.Dimension
 import java.awt.event.ComponentAdapter
@@ -28,29 +29,17 @@ fun main() = application {
             window.minimumSize = Dimension(1100, 700)
             window.setSize(1280, 800)
             window.setLocationRelativeTo(null)
-            println("YMCL window ready")
-            System.out.flush()
         }
         LaunchedEffect(window) {
-            fun dump(tag: String) {
-                println(
-                    "DBG $tag win=${window.size} content=${window.contentPane.size} " +
-                        "panel=${window.contentPane.components.firstOrNull()?.size} " +
-                        "scale=${window.graphicsConfiguration.defaultTransform.scaleX}",
-                )
-                System.out.flush()
-            }
-            dump("init")
             window.addComponentListener(object : ComponentAdapter() {
                 override fun componentResized(e: ComponentEvent) {
                     // XWayland + tiling WMs can resize the peer without the AWT
                     // content pane being revalidated; force layout + repaint.
                     window.contentPane.revalidate()
                     window.contentPane.repaint()
-                    dump("resized")
                 }
             })
         }
-        YmclApp(state = remember { AppState() })
+        YmclApp(state = remember { AppState(HmclEngine()) })
     }
 }

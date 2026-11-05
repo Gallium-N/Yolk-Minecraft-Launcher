@@ -5,11 +5,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.mayo.ymcl.domain.Instance
 import dev.mayo.ymcl.domain.InstanceStatus
+import dev.mayo.ymcl.domain.JavaRuntime
 import dev.mayo.ymcl.engine.FakeGameEngine
 import dev.mayo.ymcl.engine.GameEngine
+import dev.mayo.ymcl.engine.LaunchRequest
 import dev.mayo.ymcl.engine.LaunchResult
+import dev.mayo.ymcl.platform.defaultGameDirectory
 import dev.mayo.ymcl.platform.instancesDirectory
+import dev.mayo.ymcl.platform.nowMillis
 import dev.mayo.ymcl.platform.themeOverride
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 enum class AppPage(val title: String) {
     HOME("启动台"),
@@ -52,17 +60,36 @@ enum class InstanceSort(val label: String) {
 }
 
 /**
- * ViewModel-ish state holder. No DI framework: the engine is a constructor
- * parameter with a fake default, so phase 2 can inject the HMCL adapter.
+ * ViewModel-ish state holder. The desktop entry point injects HmclEngine; tests
+ * and previews keep the fake default. UI/common code never imports HMCL types.
  */
 class AppState(
     private val engine: GameEngine = FakeGameEngine(),
 ) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     var page by mutableStateOf(AppPage.HOME)
         private set
 
-    var instances by mutableStateOf(engine.listInstances())
+    var gameDirectory by mutableStateOf(defaultGameDirectory())
         private set
+
+    var instances by mutableStateOf(engine.listInstances(gameDirectory))
+        private set
+
+    var javaRuntimes by mutableStateOf(
+        runCatching { engine.detectJava() }
+            .onFailure { println("YMCL Java detection failed: ${it.message}") }
+            .getOrElse { emptyList() },
+    )
+        private set
+
+    var selectedJavaPath by mutableStateOf(
+        javaRuntimes.firstOrNull { it.major == 21 }?.path ?: javaRuntimes.firstOrNull()?.path,
+    )
+        private set
+
+    var xmxMb by mutableStateOf(4096)
 
     var selectedInstanceId by mutableStateOf(instances.firstOrNull()?.id)
         private set
@@ -81,7 +108,25 @@ class AppState(
 
     var settingsGroup by mutableStateOf(SettingsGroup.APPEARANCE)
 
+    var activeInstanceId by mutableStateOf<String?>(null)
+        private set
+
+    var launchLogs by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    var launchError by mutableStateOf<String?>(null)
+        private set
+
+    var logFilePath by mutableStateOf<String?>(null)
+        private set
+
+    var launchPending by mutableStateOf(false)
+        private set
+
     val instancesRoot: String = instancesDirectory()
+
+    val selectedJava: JavaRuntime?
+        get() = javaRuntimes.firstOrNull { it.path == selectedJavaPath }
 
     val mainInstance: Instance?
         get() = instances.firstOrNull { it.id == selectedInstanceId } ?: instances.firstOrNull()
@@ -102,16 +147,82 @@ class AppState(
         selectedInstanceId = id
     }
 
+    fun selectJava(path: String?) {
+        selectedJavaPath = path
+    }
+
+    fun changeGameDirectory(path: String) {
+        val trimmed = path.trim()
+        if (trimmed.isEmpty() || trimmed == gameDirectory) return
+        gameDirectory = trimmed
+        selectedInstanceId = null
+        refresh()
+    }
+
     fun launch(id: String? = null) {
         val target = id ?: selectedInstanceId ?: return
-        when (engine.start(target)) {
-            is LaunchResult.Started -> refresh()
-            is LaunchResult.Failed -> Unit // Phase 1 fake never fails.
+        if (activeInstanceId != null || launchPending) return
+
+        val java = selectedJava
+        if (java == null) {
+            launchError = "没有可用的 Java 运行时。请检查设置 → 游戏里的 Java 列表。"
+            return
+        }
+
+        launchError = null
+        launchLogs = emptyList()
+        logFilePath = null
+        launchPending = true
+
+        scope.launch {
+            val result = runCatching {
+                engine.launch(
+                    LaunchRequest(
+                        instanceId = target,
+                        gameDir = gameDirectory,
+                        java = java,
+                        xmxMb = xmxMb,
+                    ),
+                )
+            }.getOrElse { LaunchResult.Failed(it.message ?: it.javaClass.simpleName) }
+            launchPending = false
+
+            when (result) {
+                is LaunchResult.Failed -> {
+                    activeInstanceId = null
+                    launchError = result.message
+                }
+
+                is LaunchResult.Started -> {
+                    val handle = result.handle
+                    activeInstanceId = target
+                    logFilePath = handle.logFile
+                    refresh()
+
+                    scope.launch {
+                        handle.logs.collect { line ->
+                            launchLogs = (launchLogs + line).takeLast(2000)
+                        }
+                    }
+                    scope.launch {
+                        val code = engine.awaitExit(target)
+                        activeInstanceId = null
+                        refresh()
+                        if (code != 0) {
+                            launchError = classifyFailure(code, launchLogs, java, handle.logFile)
+                        }
+                    }
+                }
+            }
         }
     }
 
     fun stop(id: String) {
-        if (engine.stop(id)) refresh()
+        if (engine.stop(id)) {
+            launchLogs = launchLogs + "已请求停止 $id"
+            activeInstanceId = null
+            refresh()
+        }
     }
 
     fun filteredInstances(): List<Instance> {
@@ -136,10 +247,36 @@ class AppState(
     fun runningCount(): Int = instances.count { it.status == InstanceStatus.RUNNING }
 
     private fun refresh() {
-        instances = engine.listInstances()
+        instances = engine.listInstances(gameDirectory).map { instance ->
+            if (instance.id == activeInstanceId) {
+                instance.copy(
+                    status = InstanceStatus.RUNNING,
+                    lastLaunchedAt = instance.lastLaunchedAt ?: nowMillis(),
+                )
+            } else {
+                instance
+            }
+        }
         if (instances.none { it.id == selectedInstanceId }) {
             selectedInstanceId = instances.firstOrNull()?.id
         }
+    }
+
+    private fun classifyFailure(code: Int, logs: List<String>, java: JavaRuntime, logFile: String): String {
+        val tail = logs.takeLast(60).joinToString("\n")
+        val reason = when {
+            tail.contains("UnsupportedClassVersionError") ->
+                "Java 版本不匹配：游戏需要更新的 Java，而当前是 ${java.vendor} ${java.version}。"
+            tail.contains("NoClassDefFoundError") || tail.contains("ClassNotFoundException") ->
+                "缺少 libraries 或模组依赖；请检查游戏目录是否完整。"
+            tail.contains("Mixin") || tail.contains("mixin") ->
+                "模组初始化失败（Mixin 冲突）；请查看日志里的第一个 Caused by。"
+            tail.contains("Could not reserve enough space") || tail.contains("OutOfMemoryError") ->
+                "内存不足；降低设置里的最大内存后重试。"
+            else ->
+                "游戏进程异常退出（退出码 $code）。"
+        }
+        return "$reason\n日志：$logFile"
     }
 }
 

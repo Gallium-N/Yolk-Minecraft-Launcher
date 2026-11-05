@@ -16,11 +16,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import dev.mayo.ymcl.app.AppPage
 import dev.mayo.ymcl.app.AppState
@@ -41,11 +39,6 @@ fun YmclApp(state: AppState) {
                     .fillMaxSize()
                     .background(colors.surface),
             ) {
-                val density = LocalDensity.current.density
-                LaunchedEffect(maxWidth, maxHeight, density) {
-                    println("DBG compose max=${maxWidth} x ${maxHeight} density=$density")
-                    System.out.flush()
-                }
                 // Below the supported minimum (1100x700, enforced by the AWT window)
                 // fall back to a scrollable 1100x700 canvas instead of squeezing or
                 // clipping the layout. Normal sizes never get these scroll modifiers.
