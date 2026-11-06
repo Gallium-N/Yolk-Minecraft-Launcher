@@ -75,8 +75,8 @@ export JAVA_HOME="<JDK 21 home>"   # Temurin 21；Gradle 8.14 不能跑在 JDK 2
 composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
 ```
 
-本工作站的 `gradle.properties` 已把 `org.gradle.java.home` 固定到 Temurin 21；
-换机器时改这两行到本机 JDK 21，或让 `JAVA_HOME` 指向 JDK 21 后再跑。
+本机 JDK 21 通过 `JAVA_HOME` 或 `~/.gradle/gradle.properties` 指定；
+仓库内不写任何绝对路径。
 `./gradlew run` 也可开发运行；`build/run-hypr.sh` 是 Hyprland 下启动 app-image 的包装，
 日志在 `build/hypr-ymcl.log`。
 
