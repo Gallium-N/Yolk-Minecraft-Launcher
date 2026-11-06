@@ -18,7 +18,8 @@ YMCL（Yolk Minecraft Launcher）：Kotlin + Compose Multiplatform 桌面 Minecr
 1. `docs/HANDOFF.md` — 交接说明、下一步、命令、坑、文件索引
 2. `AGENTS.md` — 仓库硬规则
 3. `NOTES.md` — 产品/设计/响应式规则
-4. `docs/p2-status.md` — P2 的真实进度与遗留项
+4. `docs/p2-report.md` — P2 最终验收（已通过）；`docs/p2-status.md` 是过程快照
+5. `prompts/phase3-install.md` — 当前阶段任务书（v1.1）
 
 ## 第一轮只做这些
 
@@ -28,27 +29,27 @@ YMCL（Yolk Minecraft Launcher）：Kotlin + Compose Multiplatform 桌面 Minecr
    `git branch --show-current`
    `git log --oneline -5`
    `git tag --list`
-2. 确认当前在 `p2-engine` 分支且工作树干净；有未提交改动就停下问我，不要覆盖。
+2. 确认 HEAD 是 `hy4-start`（`6a8a997`）或其后的提交，且工作树干净；有未提交改动就停下问我，不要覆盖。
 3. 运行 `./gradlew build`，记录 BUILD SUCCESSFUL/FAILED 和测试数量。
    JDK 21 / Gradle 8.14；本机 JDK 21 通过 `JAVA_HOME` 或
    `~/.gradle/gradle.properties` 指定，仓库内不写任何绝对路径。
 4. 用 5–8 行汇报：
    - 构建结果；
-   - 当前分支、HEAD、`pre-hy4-qa` 指向；
-   - 你理解的 P2 现状；
-   - 你认为最该先做的 3 件事（从 HANDOFF 第 4 节里选，不要自行发明）。
+   - 当前分支、HEAD、`hy4-start` 指向；
+   - 你理解的 P2 现状与 P3 起点；
+   - 你认为下一阶段的第一步（`docs/HANDOFF.md` 第 4 节现在只有 P3、P5 两条，不要自行发明）。
 5. 汇报完就停，等我选目标；不要自动开始 P2/P3 新功能。
 
 ## 现状摘要
 
-- 分支 `p2-engine`，交接 tag `pre-hy4-qa`（`pre-hy4` 是首版快照，保持不动）。
+- 分支 `p2-cleanup`（从 `hy4-start` = `6a8a997` 起）；下一个功能阶段从 `hy4-start` 开新分支 `p3-install`。
 - P2 已跑通：15 个本地版本、3 个系统 Java、Forge 1.20.1 可启动、日志流、
   正常退出、错误 Java 可读提示；23 个测试通过。
 - **窗口问题已复测通过，暂定关闭**：2446×1376 下单窗口铺满，未复现“只画左上角
   1280×800”。只有窗口压到很小（低于 1100×700）时会被 Hyprland 强制裁切，
   按环境限制处理。不要主动重开；除非用户再次报告 2446 级别异常。
-- 未收尾：P2 最终验收报告；诊断页左侧假数据（P5，非 P2）。
-- CP936 解码器纯函数 + 单测已完成；端到端回退留给 P7/Windows，不重写启动路径。
+- P2 最终验收报告已完成（`docs/p2-report.md`，含 6 条遗留项）；诊断页左侧假数据留给 P6。
+- CP936 解码器纯函数 + 单测已完成；端到端回退留给后续自管进程 / Windows 中文 locale 阶段。
 
 ## 硬规则
 
@@ -63,7 +64,9 @@ YMCL（Yolk Minecraft Launcher）：Kotlin + Compose Multiplatform 桌面 Minecr
 
 ## 默认下一步（只有我说“继续”才做）
 
-按 `docs/HANDOFF.md` 第 4 节顺序执行第 1 条（先做 P2 最终验收报告）。
+按 `docs/HANDOFF.md` 第 4 节顺序执行第 1 条：**P3 下载与安装**，
+任务书是 `prompts/phase3-install.md`（v1.1 —— BMCLAPI 默认、可关），先做第 0 步侦察并汇报，
+不要直接写代码。
 每完成一条，先贴证据（命令输出/截图/测试结果），再问我下一条。
 
 只有我再次明确报告窗口异常时，才新开窗口诊断；先收集 `hyprctl activewindow -j`、
@@ -80,7 +83,7 @@ YMCL（Yolk Minecraft Launcher）：Kotlin + Compose Multiplatform 桌面 Minecr
 
 ## 使用提示
 
-- 想让它直接做 P2 验收报告，把“默认下一步”改成“本轮目标：完成 P2 最终验收报告”。
-- 窗口问题已暂定关闭，不要再主动开窗口任务；只有用户再次报告异常时才新开。
-- 不要把这段和 `prompts/phase2-engine.md` 混用：后者是 P2 原始任务书，里面有
-  旧主机路径和当时的需求；本文件才是当前交接状态。
+- 想让它直接开工 P3，把「默认下一步」改成「本轮目标：完成 `prompts/phase3-install.md` 的
+  第 0 步侦察并汇报」。窗口问题已暂定关闭，不要再主动开窗口任务；只有用户再次报告异常时才新开。
+- `prompts/` 下的任务书是**只读输入**：`phase3-install.md` 是当前阶段（v1.1），
+  `phase4-resources.md` 是下一阶段；不要改它们，也不要拿旧版记忆替代。

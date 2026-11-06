@@ -181,14 +181,15 @@
 | **P0** | 设计（已完成） | 四屏稿 + 亮暗 token + 生成器脚本 |
 | **P1** | 壳：工程骨架五层 + 四页假数据 UI ✅ **已完成**（build/test 通过，15 个测试；三档窗口尺寸实测通过）→ `phase1-shell.md` |
 | **P2** | 引擎：接 HMCLCore（列已有版本 → 启动 → 抓日志流）；只做**探测并注册系统已有的 Java** | 用系统 Java 起一个真实的 1.20.1 实例 |
-| **P3** | 下载与安装：原版版本清单、加载器安装（Forge/NeoForge/Fabric/Quilt）、下载源可切 | 空目录能装出一个可启动实例 |
-| **P4** | 整合包：mrpack 导入 + `client-overrides/.launcher/instance.json` 可选配置 | 别人的 mrpack 导入即玩，Prism 也能正常装 |
-| **P5** | 诊断：类名→jar 索引、元数据指纹、规则证据链、Mixin 冲突 | 拿真实 crash-report 给出结论 + 证据 + 一键处置 |
-| **P6** | Java 运行时安装（**延后**：朋友的机器已经装过 Java）：Adoptium API + TUNA/华为云镜像安装器，接进 P2 的注册表 | 装好 JRE 21 并出现在运行时列表里 |
-| **P7** | 打包分发：单 exe（自解压）+ AppImage + 签名清单自更新 | 两个平台各一个单文件，朋友双击即用 |
+| **P3** | 下载与安装：版本清单缓存、**BMCLAPI 默认（可关）** 的下载源抽象、原版安装、加载器安装（Fabric/Forge/NeoForge） | 空目录能装出一个可启动实例；关镜像也能装 | → `phase3-install.md`
+| **P4** | 资源获取：Modrinth / CurseForge 搜索、版本过滤、依赖补齐、Mod/资源包/光影安装；整合包只下载不导入 | 装 sodium + iris 能启动；无 CF key 有明确提示 | → `phase4-resources.md`
+| **P5** | 整合包导入：mrpack 与 CurseForge zip + `client-overrides/.launcher/instance.json` 可选配置 | 别人的整合包导入即玩，Prism 也能正常装 |
+| **P6** | 诊断：类名→jar 索引、元数据指纹、规则证据链、Mixin 冲突 | 拿真实 crash-report 给出结论 + 证据 + 一键处置 |
+| **P7** | Java 运行时安装（延后）：Adoptium API + TUNA/华为云镜像安装器，接进 P2 的注册表 | 装好 JRE 21 并出现在运行时列表里 |
+| **P8** | 打包分发：单 exe（自解压）+ AppImage + 签名清单自更新 | 两个平台各一个单文件，朋友双击即用 |
 
 P2 虽然不做安装器，但**运行时注册表要先立起来**（探测到的和以后安装的都写进同一张表），
-否则 P6 会变成"启动器装了一个 Java、引擎又去找另一个"。
+否则 P7 会变成"启动器装了一个 Java、引擎又去找另一个"。
 
 
 ## 未决问题
@@ -200,6 +201,6 @@ P2 虽然不做安装器，但**运行时注册表要先立起来**（探测到�
 
 ## 环境备忘
 
-- 项目在**工作站 Mayo-WS**（`ssh Mayo-WS`），dsh 也在那台机器（`command -v dsh` 可确认）
+- 项目在**工作站 Mayo-WS**（`ssh Mayo-WS`），dsh 也在那台机器（`/home/decafmayo/.local/bin/dsh`）
 - 本会话曾跑在服务器（Mayo-Server）上，注意 `~/下载` vs `~/Downloads` 的差异
 - 生成脚本用 python3 标准库，渲染 PNG 用 `rsvg-convert -w 1280 -h 800`
