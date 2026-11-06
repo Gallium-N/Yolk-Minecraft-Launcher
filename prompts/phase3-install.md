@@ -35,7 +35,9 @@ https://bmclapi2.bangbang93.com/maven/<某个 library 的 maven 路径>
 https://bmclapi2.bangbang93.com/assets/<sha1 前两位>/<sha1>
 https://piston-meta.mojang.com/mc/game/version_manifest_v2.json
 https://libraries.minecraft.net/
-https://maven.fabricmc.net/
+https://maven.fabricmc.net/net/fabricmc/fabric-loader/maven-metadata.xml
+https://meta.fabricmc.net/v2/versions/loader/1.20.1
+https://meta.fabricmc.net/v2/versions/loader/1.20.1/<某个 loader 版本>/profile/json
 https://maven.minecraftforge.net/
 https://maven.neoforged.net/releases/
 ```
@@ -93,7 +95,10 @@ interface DownloadSource {
 
 ## 第 4 步：加载器安装
 优先复用 HMCLCore 的安装器；不可用时再自己实现，并在报告里说明走的是哪条。
-- **Fabric**：`maven.fabricmc.net` 的 loader 元数据 → 生成 profile json（继承原版）
+- **Fabric**：**优先用 meta API**（`meta.fabricmc.net/v2/versions/loader/<mc>` 选 loader 版本，
+  再取 `.../loader/<mc>/<loader>/profile/json` 拿现成 profile json），它已经把 loader 依赖
+  （asm / mixin / intermediary 等）写好了；`maven.fabricmc.net` 只用来兜底枚举版本
+  （`fabric-loader/maven-metadata.xml`）和下载 profile 里引用的 jar。**不要自己拼 profile**
 - **Forge**：`maven.minecraftforge.net` 的 installer jar → 用 JDK 执行
   `java -jar forge-installer.jar --installClient <gameDir>`（先确认 installer 支持的参数，别照抄记忆）
 - **NeoForge**：同 Forge 思路，域名 `maven.neoforged.net`
