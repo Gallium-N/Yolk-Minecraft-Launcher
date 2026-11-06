@@ -28,7 +28,7 @@ Working tree: clean before this note.
 - Wrong-Java test: a real Temurin 8 JRE was temporarily placed under
   `build/jdks/` (now deleted) and detected. Selecting it for 1.20.1 showed:
   “Java 版本不匹配：1.20.1 需要 Java 17 或更高，当前是 Temurin 1.8.0_512。”
-- Tests: 19 passing (15 P1 + 4 Java registry/detection tests).
+- Tests: 23 passing (15 P1 + 4 Java registry/detection + 4 decoder tests).
   `./gradlew build` succeeds.
 
 ## Evidence files
@@ -51,7 +51,9 @@ Logs:
 
 ## Open items / why stopped
 
-2026-11-06 窗口复测：在 2446×1376 单窗口下启动器铺满窗口，未复现“只画左上角
+> 当前交接以 `docs/HANDOFF.md` 和 `docs/START_PROMPT.md` 为准。
+>
+> 2026-11-06 窗口复测：在 2446×1376 单窗口下启动器铺满窗口，未复现“只画左上角
 1280×800”。只有把窗口压到很小（低于 1100×700）时会被 Hyprland 强制裁切，
 按环境限制处理，**暂定关闭**。旧 P1 的 DBG 输出已从 `DesktopMain.kt`/
 `YmclApp.kt` 删除。
@@ -60,12 +62,12 @@ Known gaps to pick up next time:
 1. **P2 acceptance report** is not written. The prompt requires a final report
    with file:line list, `git log --oneline p1-baseline..HEAD`, tags, and rollback
    commands.
-2. **Log stream encoding fallback** is not implemented: HMCLCore's
-   `ManagedProcess`/`StreamPump` decodes with `OperatingSystem.NATIVE_CHARSET`
-   (UTF-8 on this Linux box). The required UTF-8 → CP936 fallback for process
-   streams is still open; file reading already has it via `readTextAuto`.
-3. **Diagnostics page content** is still the P1 fake conclusion/clues; only the
-   right-hand log panel is real (P5 owns the analysis rules).
+2. **CP936 is P7/Windows scope**, not P2 end-to-end: `decodeLogBytes(bytes)` and
+   its 4 tests are in place, but the HMCLCore pump is untouched. Replacing the
+   pump would rewrite the verified launch path or edit vendor source (forbidden).
+   P2 Linux accepts UTF-8 only.
+3. **Diagnostics page content** is P1 fake data; P2 hands this to P5, does not
+   process it in this phase.
 4. Total play time is always 0; only last-launch time is persisted.
 5. The Java probe test used a temporary JRE 8; it and its registry entry were
    removed. `runtimes.json` is back to 3 system runtimes.

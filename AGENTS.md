@@ -39,7 +39,7 @@ engine  GameEngine 接口；HMCL 类型只允许在 desktopMain 的 HmclEngine
 - **禁止** `git push --force`、`rebase` 已推送历史、删分支、改写历史、
   `git checkout -- .` 覆盖用户改动。
 - 撤销自己的改动用 `git revert <hash>`，或在新分支重做。
-- 阶段完成打 tag（P1=`p1-baseline`，P2=`p2-java-ok`/`p2-launch-ok`，交接=`pre-hy4`）。
+- 阶段完成打 tag（P1=`p1-baseline`，P2=`p2-java-ok`/`p2-launch-ok`，交接=`pre-hy4`/`pre-hy4-qa`）。
 
 ## 设计与尺寸
 

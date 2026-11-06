@@ -28,11 +28,19 @@ composeApp/src/commonMain/kotlin/dev/mayo/ymcl/
 |---|---|---|
 | P0 | 四屏稿、亮暗 token、生成脚本 | 设计文件随首个快照提交 |
 | P1 | 五层骨架 + 四页 UI + 15 个测试；三档窗口尺寸实测 | tag `p1-baseline`，commit `26e25f1` |
-| P2 | vendored HMCLCore、Java 注册表、真实版本列表、启动+日志、UI 接线 | tag `p2-java-ok`、`p2-launch-ok`、`p2-checkpoint`；交接 tag `pre-hy4` |
+| P2 | vendored HMCLCore、Java 注册表、真实版本列表、启动+日志、UI 接线 | tag `p2-java-ok`、`p2-launch-ok`、`p2-checkpoint`；交接 tag `pre-hy4` / `pre-hy4-qa` |
 
-P2 已验证：15 个本地版本；3 个系统 Java；Forge 1.20.1 进入主菜单；正常退出码 0；
-错误 Java（Temurin 8）显示可读错误；19 个测试通过；`./gradlew build` 通过。
+P2 已验证：15 个本地版本（首屏 12 行、其余滚动；最终启动日志无 `YMCL versions: skip`）；
+3 个系统 Java；Forge 1.20.1 进入主菜单；正常退出码 0；错误 Java（Temurin 8）显示
+可读错误；23 个测试通过；`./gradlew build` 通过。
 详细证据和历史记录见 `docs/p2-status.md`；HMCLCore 侦察见 `docs/hmcl-api-notes.md`。
+
+> **Java 17 口径修正**：原任务书“用 Java 17 启动 1.20.1”是笔误——1.20.1 本来就要求
+> Java 17+，不会报错。错误 Java 验收用真实 Temurin 8 触发“需要 Java 17 或更高”，
+> 报告按 Java 8 口径写，不伪造 Java 17 失败。
+
+> **pgrep 口径**：`pgrep -af "java.*minecraft"` 会匹配命令自身。验收请用
+> `pgrep -af '[j]ava .*minecraft'`（方括号让模式不匹配自己）。
 
 > **窗口复测（2026-11-06）**：2446×1376 下启动器铺满窗口，未复现“只画左上角
 > 1280×800”。只有把窗口压到很小（低于 1100×700）时会被 Hyprland 强制裁切；
@@ -42,15 +50,17 @@ P2 已验证：15 个本地版本；3 个系统 Java；Forge 1.20.1 进入主菜
 
 1. **补 P2 最终验收报告**（`docs/HANDOFF.md` 之外单独写 `docs/p2-report.md`）：
    `./gradlew build`/`test` 尾部、15 个版本列表证据、`runtimes.json`、真实启动截图、
-   日志前 20 行、退出后 `pgrep -af "java.*minecraft"` 为空、错误 Java 截图、
+   日志前 20 行、退出后 `pgrep -af '[j]ava .*minecraft'` 为空、错误 Java 截图、
    文件:行清单、`git log/tag`、三条回退命令。
    验收：报告逐条对应 `prompts/phase2-engine.md` 的验收 1–7。
-2. **补进程日志的 UTF-8→CP936 回退**。当前 HMCLCore 的 `ManagedProcess`/`StreamPump`
-   用 native charset（Linux UTF-8），文件读取已有回退；进程流没有。
-   验收：单测用一段 GBK 字节流经解码函数得到中文；真实日志落盘仍为 UTF-8。
+2. **CP936：P2 只做解码器纯函数，端到端留给 P7/Windows。** 已完成
+   `decodeLogBytes(bytes)` + 4 个 GBK/UTF-8 单测（总计 23 tests），**没有**改
+   pump；`DefaultLauncher.startMonitors()` 仍在 HMCLCore 内用 `command.encoding`
+   解码。要字节级端到端回退只有自管进程（会重写已验证启动路径）或改 vendor
+   源码（禁止），故留到 P7/自管进程阶段。P2 Linux 验收 UTF-8。
 3. **P3 下载与安装**：原版清单、Forge/NeoForge/Fabric/Quilt 安装、下载源切换。
    验收：空目录能装出一个可启动实例，且不覆盖已有实例。
-4. **P5 诊断**：类名→jar 索引、规则证据链、Mixin 冲突；把
+4. **P5 诊断（P2 交接不处理）**：类名→jar 索引、规则证据链、Mixin 冲突；把
    `DiagnosticsPage` 左侧假数据换成真实规则结果。
    验收：拿真实 crash-report 给出结论 + 证据 + 一键处置。
 
@@ -107,6 +117,8 @@ composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
 
 ## 8. 交接 tag
 
-`pre-hy4` 指向本文件的最终提交；用 `git rev-parse pre-hy4` 取 commit hash。
+- `pre-hy4`：首版交接快照（`dd3767b`），保持不动。
+- `pre-hy4-qa`：本次问答澄清后的交接点；用 `git rev-parse pre-hy4-qa` 取 hash。
+- `p2-complete`：**暂不打**；等 `docs/p2-report.md` 写完后，再单独打。
 回退：`git switch main && git branch -D p2-engine` 丢弃 P2；
 `git switch -c retry p1-baseline` 从 P1 重开；单步用 `git revert <hash>`。
