@@ -71,6 +71,12 @@ interface DownloadSource {
   照 `FetchTask.java:339-341` 的做法），能省掉一次重复下载
 - 回退链：首选源失败（5xx / 超时 / 连接重置）→ 自动换另一个源重试一次 → 仍失败给出可见错误；
   日志记录每个文件实际使用的源
+- **每个文件返回"候选 URL 列表"而不是单个 URL**（照 `download/DownloadCandidate(s)` 的语义）：
+  依次尝试，404/超时/5xx 就切下一条。理由：BMCLAPI 的 `/maven` 是 **302 重定向到第三方 CDN**
+  （实测首跳 20s 超时、换节点后 1.6s），302 要当正常路径跟随，不能当失败
+- **超时放宽**：连接 20s / 读 60s / 单文件总超时 120s（实测 BMCLAPI 首跳会出现 20s 级延迟）
+- 测试端点时**必须用真实存在于版本 json 里的 artifact 路径**：`libraries.minecraft.net` 只镜像
+  MC 实际引用的构件，随便挑一个坐标报 404 不代表源坏了（例：1.20.1 引用的是 `asm:9.3`，拿 `9.5` 去测必 404）
 - BMCLAPI 的路径映射与官方不同（`/mc/game/...`、`/maven/...`、`/assets/...`），**以侦察结果为准**，
   不要照抄记忆；maven 映射要能拼出 Fabric / Forge / NeoForge 的坐标
 - 所有网络请求只能经过这一层：`grep -rn "https://" composeApp/src --include=*.kt | grep -v DownloadSource` 为空
@@ -95,13 +101,17 @@ interface DownloadSource {
 
 ## 第 4 步：加载器安装
 优先复用 HMCLCore 的安装器；不可用时再自己实现，并在报告里说明走的是哪条。
-- **Fabric**：**优先用 meta API**（`meta.fabricmc.net/v2/versions/loader/<mc>` 选 loader 版本，
-  再取 `.../loader/<mc>/<loader>/profile/json` 拿现成 profile json），它已经把 loader 依赖
-  （asm / mixin / intermediary 等）写好了；`maven.fabricmc.net` 只用来兜底枚举版本
-  （`fabric-loader/maven-metadata.xml`）和下载 profile 里引用的 jar。**不要自己拼 profile**
+- **Fabric**：**loader 版本枚举用 `maven.fabricmc.net/net/fabricmc/fabric-loader/maven-metadata.xml`**
+  （实测 8.5s 可用；`meta.fabricmc.net/v2/versions/loader/<mc>` 实测每次跑满超时，只当兜底），
+  选定版本后取 `https://meta.fabricmc.net/v2/versions/loader/<mc>/<loader>/profile/json`（实测 10s）
+  拿成品 profile，**落盘缓存到 `data/meta/fabric/<mc>-<loader>.json`（TTL 24h）**；
+  它已写好 inheritsFrom / mainClass / libraries（asm、mixin、intermediary），
+  **不要自己拼 profile**，`maven.fabricmc.net` 只用于下载 profile 里引用的 jar
 - **Forge**：`maven.minecraftforge.net` 的 installer jar → 用 JDK 执行
   `java -jar forge-installer.jar --installClient <gameDir>`（先确认 installer 支持的参数，别照抄记忆）
-- **NeoForge**：同 Forge 思路，域名 `maven.neoforged.net`
+- **NeoForge**：同 Forge 思路，域名 `maven.neoforged.net`。**实测该域 3 次全 000（20s/15s 超时）**，
+  所以 P3 **不验收 NeoForge**：只留接口与"暂不可用"的可读错误，不写安装实现。
+  若你要排查可达性，先试 `curl -4`、`--resolve`、以及换 DNS，结论写进报告，不要在本阶段强推
 - **Quilt**：与 Fabric 同构，P3 允许只做接口不实现，报告里写明
 - 每种 loader 装完必须能在实例列表里看到，并且**能启动进入主菜单**
 
