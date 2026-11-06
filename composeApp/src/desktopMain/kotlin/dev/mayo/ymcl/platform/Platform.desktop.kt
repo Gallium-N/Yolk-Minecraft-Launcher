@@ -8,6 +8,7 @@ import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.MalformedInputException
+import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -73,7 +74,7 @@ actual fun detectJavaRuntimes(): List<JavaRuntime> {
     fun children(dir: File): List<File> =
         dir.listFiles()?.filter { it.isDirectory }.orEmpty()
 
-    children(File("/usr/lib/jvm")).forEach(::addHome)
+    children(File(Path.of("/usr", "lib", "jvm").toString())).forEach(::addHome)
     children(File(System.getProperty("user.home"), ".sdkman/candidates/java")).forEach(::addHome)
     children(File(System.getProperty("user.home"), ".gradle/jdks")).forEach(::addHome)
 

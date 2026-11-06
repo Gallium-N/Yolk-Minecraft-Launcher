@@ -1,6 +1,6 @@
 # HMCLCore API recon (P2)
 
-Source checkout: `/home/decafmayo/src/ymcl/HMCL`
+Source checkout: `HMCL/` (local, gitignored clone)
 Commit: `b46a07cd45be326878498b22daa01a79ea3ea1bd`
 License: GPL-3.0-or-later WITH AdditionRef-HMCL (see `LICENSE` and `vendor/README.md`)
 

@@ -269,7 +269,7 @@ private fun GameCards(state: AppState) {
             Text("Java 运行时", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
             Spacer(Modifier.height(4.dp))
             Text(
-                "来自 JAVA_HOME、PATH、/usr/lib/jvm、sdkman 与 Gradle JDK；点击选择启动用 Java",
+                "来自 JAVA_HOME、PATH、系统 JVM 目录、sdkman 与 Gradle JDK；点击选择启动用 Java",
                 fontSize = 12.sp,
                 color = colors.onSurfaceVariant,
             )

@@ -10,7 +10,7 @@ expect fun instancesDirectory(): String
 /** Picks the existing `~/.minecraft`, `~/Minecraft` or `~/Documents/.minecraft`. */
 expect fun defaultGameDirectory(): String
 
-/** Probes JAVA_HOME, PATH, /usr/lib/jvm, sdkman and Gradle-managed JDKs. */
+/** Probes JAVA_HOME, PATH, system JVM roots, sdkman and Gradle-managed JDKs. */
 expect fun detectJavaRuntimes(): List<JavaRuntime>
 
 expect fun nowMillis(): Long

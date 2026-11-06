@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InstanceNameValidatorTest {
-    private val root = "/home/decafmayo/.local/share/ymcl/instances"
+    private val root = System.getProperty("java.io.tmpdir").trimEnd('/') + "/ymcl/instances"
 
     private fun invalidMessage(name: String): String {
         val result = InstanceNameValidator.validate(name, root)

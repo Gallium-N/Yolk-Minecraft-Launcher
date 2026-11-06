@@ -83,7 +83,7 @@ class FakeGameEngine : GameEngine {
             version = "21.0.13+9",
             arch = "x64",
             os = "linux",
-            path = "/usr/lib/jvm/java-21-temurin-jdk/bin/java",
+            path = "/opt/ymcl-jdk-21/bin/java",
             source = "detected",
         ),
     )

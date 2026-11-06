@@ -11,8 +11,8 @@ Working tree: clean before this note.
   (`includeBuild("HMCL")`) failed because HMCL uses Gradle 9.8 buildSrc against
   YMCL's Gradle 8.14; details in `docs/hmcl-api-notes.md`.
 - Java runtime registry: `domain/JavaRuntime.kt`, `platform/JavaRegistry.kt`,
-  detection in `platform/Platform.desktop.kt` (JAVA_HOME, PATH, /usr/lib/jvm,
-  sdkman, Gradle JDKs). `data/java/runtimes.json` has 3 real system runtimes:
+  detection in `platform/Platform.desktop.kt` (JAVA_HOME, PATH, system JVM
+  roots, sdkman, Gradle JDKs). `data/java/runtimes.json` has 3 real system runtimes:
   Java 25 (Red Hat), Java 25 (Temurin), Java 21 (Temurin).
 - `HmclEngine` lists all local versions by reading `versions/*/<id>.json`
   (currently 15) and launches through HMCLCore `DefaultLauncher`.

@@ -5,7 +5,7 @@ This directory is a source copy, not a binary drop, so the build is reproducible
 GPLv3 source obligation is satisfied.
 
 - Upstream: `https://github.com/HMCL-dev/HMCL`
-- Source checkout used: `/home/decafmayo/src/ymcl/HMCL`
+- Source checkout used: `HMCL/` (local, gitignored clone)
 - Commit: `b46a07cd45be326878498b22daa01a79ea3ea1bd`
   (`feat(modpack-export): 为整合包导出添加进度显示 (#7206)`)
 - Copied paths:

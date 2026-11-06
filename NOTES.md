@@ -200,6 +200,6 @@ P2 虽然不做安装器，但**运行时注册表要先立起来**（探测到�
 
 ## 环境备忘
 
-- 项目在**工作站 Mayo-WS**（`ssh Mayo-WS`），dsh 也在那台机器（`/home/decafmayo/.local/bin/dsh`）
+- 项目在**工作站 Mayo-WS**（`ssh Mayo-WS`），dsh 也在那台机器（`command -v dsh` 可确认）
 - 本会话曾跑在服务器（Mayo-Server）上，注意 `~/下载` vs `~/Downloads` 的差异
 - 生成脚本用 python3 标准库，渲染 PNG 用 `rsvg-convert -w 1280 -h 800`

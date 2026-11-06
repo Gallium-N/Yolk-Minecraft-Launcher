@@ -7,5 +7,10 @@ out/
 *.iml
 .idea/
 
+# 本地密钥；当前仓库没有 .env，新增时另建 .env.example
+.env
+.env.*
+!.env.example
+
 # 外部依赖（HMCL 源码克隆，不进本仓库）
 /HMCL/
