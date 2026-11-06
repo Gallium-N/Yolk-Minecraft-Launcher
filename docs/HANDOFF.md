@@ -34,12 +34,17 @@ P2 已验证：15 个本地版本；3 个系统 Java；Forge 1.20.1 进入主菜
 错误 Java（Temurin 8）显示可读错误；19 个测试通过；`./gradlew build` 通过。
 详细证据和历史记录见 `docs/p2-status.md`；HMCLCore 侦察见 `docs/hmcl-api-notes.md`。
 
+> **暂停点（2026-11-06 用户确认）**：“还是一样”指 P1 的“窗口放大后界面只画
+> 左上角 1280×800”问题**仍然存在**；因时间暂停，不是 P2 启动失败。
+> 恢复窗口工作时再按下面第 1 条做，不要在没有新证据前宣称已修好。
+
 ## 4. 下一步（按顺序，每条有验收）
 
-1. **先确认用户说的“还是一样”具体指什么。** 需要用户给 `hyprctl activewindow -j`、
-   一张 `grim` 截图、触发动作（启动器窗口还是游戏窗口）。在
-   `DesktopMain.kt`/`YmclApp.kt` 临时加 AWT/Compose 尺寸打印，复现后删除。
-   验收：能指出 AWT、Compose、Hyprland 三者哪一层尺寸不一致。
+1. **窗口/平铺问题（已确认仍在，暂停中）**：收集当前 `hyprctl activewindow -j`、
+   `grim` 截图和触发动作；在 `DesktopMain.kt`/`YmclApp.kt` 临时加 AWT/Compose
+   尺寸打印，定位后删除。只允许用 Hyprland 的 `hyprctl` + `grim` 验证。
+   验收：2446×1376 下 `hyprctl` 的 size、AWT contentPane、Compose
+   `maxWidth/Height` 三者一致，截图内部无未绘制的黑区。
 2. **补 P2 最终验收报告**（`docs/HANDOFF.md` 之外单独写 `docs/p2-report.md`）：
    `./gradlew build`/`test` 尾部、15 个版本列表证据、`runtimes.json`、真实启动截图、
    日志前 20 行、退出后 `pgrep -af "java.*minecraft"` 为空、错误 Java 截图、
@@ -48,13 +53,9 @@ P2 已验证：15 个本地版本；3 个系统 Java；Forge 1.20.1 进入主菜
 3. **补进程日志的 UTF-8→CP936 回退**。当前 HMCLCore 的 `ManagedProcess`/`StreamPump`
    用 native charset（Linux UTF-8），文件读取已有回退；进程流没有。
    验收：单测用一段 GBK 字节流经解码函数得到中文；真实日志落盘仍为 UTF-8。
-4. **处理窗口/平铺问题（若确实仍存在）**：只允许用 Hyprland 的
-   `hyprctl` + `grim` 验证；不要用 `wmctrl`/`xdotool` 做尺寸结论。
-   验收：2446×1376 下 `hyprctl` 的 size、AWT contentPane、Compose `maxWidth/Height`
-   三者一致，截图内部无未绘制的黑区。
-5. **P3 下载与安装**：原版清单、Forge/NeoForge/Fabric/Quilt 安装、下载源切换。
+4. **P3 下载与安装**：原版清单、Forge/NeoForge/Fabric/Quilt 安装、下载源切换。
    验收：空目录能装出一个可启动实例，且不覆盖已有实例。
-6. **P5 诊断**：类名→jar 索引、规则证据链、Mixin 冲突；把
+5. **P5 诊断**：类名→jar 索引、规则证据链、Mixin 冲突；把
    `DiagnosticsPage` 左侧假数据换成真实规则结果。
    验收：拿真实 crash-report 给出结论 + 证据 + 一键处置。
 
@@ -107,6 +108,7 @@ composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
 - 原始任务书：`prompts/phase1-shell.md`、`prompts/phase2-engine.md`
 - 设计稿：`design/mockups/`、`design/tokens/`
 - 本次交接证据索引：`docs/p2-status.md`
+- 冷启动 prompt：`docs/START_PROMPT.md`
 
 ## 8. 交接 tag
 

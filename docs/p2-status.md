@@ -48,15 +48,15 @@ Logs:
 
 ## Open items / why stopped
 
-The user's latest message says “还是一样” and has no time. It is not yet clear
-which symptom is “一样” (the P1 1280×800 top-left window issue, or a P2 launch
-issue). At the last P2 run the launcher itself was 1216×1376 (tiled next to
-Zen), and the game window 1216×681; no 2446×1376 P2 screenshot was captured.
+2026-11-06 用户确认：“还是一样”指 P1 的“窗口放大后界面只画左上角
+1280×800”问题**仍然存在**，因时间暂停；不是 P2 启动失败。最后一次 P2 运行时
+启动器是 1216×1376（与 Zen 平铺），游戏窗口 1216×681，没有补 2446×1376 的
+P2 截图。
 
 Known gaps to pick up next time:
-1. **Clarify the still-reproducing symptom.** Ask for `hyprctl activewindow -j`,
-   a `grim` screenshot, and the exact action. The old P1 DBG logging was removed
-   from `DesktopMain.kt`/`YmclApp.kt`; re-add temporarily if needed.
+1. **窗口问题（已确认仍在，暂停）**：收集 `hyprctl activewindow -j`、`grim`
+   截图和触发动作；旧 P1 的 DBG 输出已从 `DesktopMain.kt`/`YmclApp.kt` 删除，
+   需要时临时加回。修复前不要宣称已解决。
 2. **P2 acceptance report** is not written. The prompt requires a final report
    with file:line list, `git log --oneline p1-baseline..HEAD`, tags, and rollback
    commands.

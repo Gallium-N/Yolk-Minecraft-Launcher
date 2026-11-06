@@ -1,7 +1,8 @@
 # AGENTS.md — 给任何 AI 编码代理的硬规则
 
 本仓库是 YMCL（Minecraft 启动器，Kotlin + Compose Multiplatform）。
-动手前先读 `docs/HANDOFF.md` 和 `NOTES.md`；它们比本文件更详细，冲突时以它们为准。
+动手前先读 `docs/HANDOFF.md`、`docs/START_PROMPT.md` 和 `NOTES.md`；
+它们比本文件更详细，冲突时以它们为准。
 
 ## 开工检查
 
