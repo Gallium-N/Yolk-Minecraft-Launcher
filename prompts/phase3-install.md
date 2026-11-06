@@ -20,6 +20,13 @@
 - 硬规则（见 AGENTS.md）：UI 层禁止 `import org.jackhuang.*`；domain 禁 `java.io`；不改 HMCL 源码
 
 ## 第 0 步：侦察（只读，先出报告再写代码）
+**已知事实（已核对 vendor 源码，别再去猜）**：HMCL 的 core **没有**全套 BMCLAPI 路由，只有两处：
+- `util/Constants.java:16` `DEFAULT_VERSION_DOWNLOAD_URL = "https://bmclapi2.bangbang93.com/versions/"`
+  （即版本 jar 走 BMCLAPI）
+- `task/FetchTask.java:313-341` 读取响应头 `x-bmclapi-hash`（BMCLAPI 返回真实 sha1 时用它复用本地缓存，
+  省一次重复下载）
+`maven/`、`assets/` 的镜像映射在 HMCL core 里**不存在**，必须自己按 BMCLAPI 文档实现。
+接口形状参考 `download/DownloadProvider.java`（我们自己的 `DownloadSource` 照它设计，但不要直接依赖它）。
 用 `curl -I` 逐个探测并报告状态码与耗时：
 ```
 https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json
@@ -58,6 +65,8 @@ interface DownloadSource {
 ```
 - **默认 `bmclapi`**；设置 →「下载」分组里给一个开关「优先使用国内镜像（BMCLAPI）」，
   关掉即走 `official`，两个源都要能跑通
+- 若实现到 BMCLAPI：校验前先看响应头 `x-bmclapi-hash`（sha1 合法时可直接用它判断本地已有文件，
+  照 `FetchTask.java:339-341` 的做法），能省掉一次重复下载
 - 回退链：首选源失败（5xx / 超时 / 连接重置）→ 自动换另一个源重试一次 → 仍失败给出可见错误；
   日志记录每个文件实际使用的源
 - BMCLAPI 的路径映射与官方不同（`/mc/game/...`、`/maven/...`、`/assets/...`），**以侦察结果为准**，
