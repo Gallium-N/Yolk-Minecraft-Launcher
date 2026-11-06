@@ -1,3 +1,6 @@
+> 这是 2026-11-05 的 P2 现场快照；窗口复测结果在文末更新。
+> 当前交接以 `docs/HANDOFF.md` 和 `docs/START_PROMPT.md` 为准。
+
 # P2 checkpoint — 2026-11-05 23:36
 
 Branch: `p2-engine`
