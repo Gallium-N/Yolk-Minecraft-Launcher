@@ -112,8 +112,10 @@ composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
 - `pre-hy4`：首版交接快照（`dd3767b`），保持不动。
 - `pre-hy4-qa`：问答澄清后的交接点（`5d86b83`）。
 - `p2-complete`：P2 最终验收报告完成点（`57f8d6e`）。
-- `hy4-start`：**给下一个 agent 的推荐起手点**（P2 收尾清理完成点）；
+- `hy4-start`：P2 收尾清理完成点（`6a8a997`）——推荐起手点之一；
   `pre-hy4` / `pre-hy4-qa` 是修复前的快照，从它们起手会继承
   `gradle.properties` 的绝对路径问题。
+- `p3-start`：**P3 起手点**（P3/P4 任务书与冷启动文档入库后的提交）。
+  从 `hy4-start` 直接开工会缺 `prompts/phase3-install.md`，所以 P3 请从 `p3-start` 开新分支。
 回退：`git switch main && git branch -D p2-engine` 丢弃 P2；
 `git switch -c retry p1-baseline` 从 P1 重开；单步用 `git revert <hash>`。

@@ -29,7 +29,7 @@ YMCL（Yolk Minecraft Launcher）：Kotlin + Compose Multiplatform 桌面 Minecr
    `git branch --show-current`
    `git log --oneline -5`
    `git tag --list`
-2. 确认 HEAD 是 `hy4-start`（`6a8a997`）或其后的提交，且工作树干净；有未提交改动就停下问我，不要覆盖。
+2. 确认 HEAD 是 `p3-start` 或其后的提交，且工作树干净；有未提交改动就停下问我，不要覆盖。
 3. 运行 `./gradlew build`，记录 BUILD SUCCESSFUL/FAILED 和测试数量。
    JDK 21 / Gradle 8.14；本机 JDK 21 通过 `JAVA_HOME` 或
    `~/.gradle/gradle.properties` 指定，仓库内不写任何绝对路径。
@@ -42,7 +42,7 @@ YMCL（Yolk Minecraft Launcher）：Kotlin + Compose Multiplatform 桌面 Minecr
 
 ## 现状摘要
 
-- 分支 `p2-cleanup`（从 `hy4-start` = `6a8a997` 起）；下一个功能阶段从 `hy4-start` 开新分支 `p3-install`。
+- 分支 `p2-cleanup`；下一个功能阶段从 `p3-start` 开新分支 `p3-install`（`p3-start` 含 P3 任务书）。
 - P2 已跑通：15 个本地版本、3 个系统 Java、Forge 1.20.1 可启动、日志流、
   正常退出、错误 Java 可读提示；23 个测试通过。
 - **窗口问题已复测通过，暂定关闭**：2446×1376 下单窗口铺满，未复现“只画左上角
