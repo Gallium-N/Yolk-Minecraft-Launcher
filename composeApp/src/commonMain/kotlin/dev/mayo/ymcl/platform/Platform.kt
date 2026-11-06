@@ -15,6 +15,9 @@ expect fun detectJavaRuntimes(): List<JavaRuntime>
 
 expect fun nowMillis(): Long
 
+/** Decodes log/file bytes as UTF-8, falling back to CP936/GBK on malformed input. */
+expect fun decodeLogBytes(bytes: ByteArray): String
+
 /** Reads a text file as UTF-8, falling back to CP936/GBK on malformed input. */
 expect fun readTextAuto(path: String): String
 

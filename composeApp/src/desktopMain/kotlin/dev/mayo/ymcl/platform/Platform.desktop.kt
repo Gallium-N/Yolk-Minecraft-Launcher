@@ -181,8 +181,7 @@ private fun slug(value: String): String = value.lowercase()
 
 actual fun nowMillis(): Long = System.currentTimeMillis()
 
-actual fun readTextAuto(path: String): String {
-    val bytes = File(PathUtil.toNative(path)).readBytes()
+actual fun decodeLogBytes(bytes: ByteArray): String {
     val withoutBom = if (bytes.size >= 3 &&
         bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
     ) {
@@ -193,14 +192,16 @@ actual fun readTextAuto(path: String): String {
 
     decode(withoutBom, Charsets.UTF_8)?.let { return it }
 
-    // Chinese zips and old logs are usually CP936/GBK; only fall back when UTF-8
-    // strictly fails, so valid UTF-8 is never mis-decoded.
-    return try {
-        decode(withoutBom, Charset.forName("GBK"))
-            ?: throw java.io.IOException("无法解码文本（既不是 UTF-8 也不是 GBK）：$path")
-    } catch (e: CharacterCodingException) {
-        throw java.io.IOException("无法解码文本（既不是 UTF-8 也不是 GBK）：$path", e)
-    }
+    // Process logs from Chinese Windows and old launchers are often CP936/GBK;
+    // only fall back when UTF-8 strictly fails, so valid UTF-8 is never mis-decoded.
+    return decode(withoutBom, Charset.forName("GBK"))
+        ?: throw java.io.IOException("无法解码字节（既不是 UTF-8 也不是 GBK）")
+}
+
+actual fun readTextAuto(path: String): String = try {
+    decodeLogBytes(File(PathUtil.toNative(path)).readBytes())
+} catch (e: java.io.IOException) {
+    throw java.io.IOException("无法解码文本（既不是 UTF-8 也不是 GBK）：$path", e)
 }
 
 private fun decode(bytes: ByteArray, charset: Charset): String? = try {

@@ -1,5 +1,6 @@
 package dev.mayo.ymcl
 
+import dev.mayo.ymcl.platform.decodeLogBytes
 import dev.mayo.ymcl.platform.readTextAuto
 import dev.mayo.ymcl.platform.writeTextUtf8Lf
 import java.nio.charset.Charset
@@ -47,5 +48,29 @@ class TextFilesTest {
             false,
             bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte(),
         )
+    }
+
+    @Test
+    fun `gbk log bytes fall back and keep chinese`() {
+        val bytes = "地下酒吧 进程日志".toByteArray(Charset.forName("GBK"))
+        assertEquals("地下酒吧 进程日志", decodeLogBytes(bytes))
+    }
+
+    @Test
+    fun `gbk byte stream decodes to chinese`() {
+        val stream = java.io.ByteArrayInputStream("地下酒吧 崩溃日志".toByteArray(Charset.forName("GBK")))
+        assertEquals("地下酒吧 崩溃日志", decodeLogBytes(stream.readBytes()))
+    }
+
+    @Test
+    fun `utf8 log bytes are not mis-decoded as gbk`() {
+        val text = "主菜单已加载 · LWJGL Version 3.3.1"
+        assertEquals(text, decodeLogBytes(text.toByteArray(Charsets.UTF_8)))
+    }
+
+    @Test
+    fun `utf8 bom in log bytes is stripped`() {
+        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        assertEquals("日志首行", decodeLogBytes(bom + "日志首行".toByteArray(Charsets.UTF_8)))
     }
 }
