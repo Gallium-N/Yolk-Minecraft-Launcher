@@ -48,26 +48,23 @@ Logs:
 
 ## Open items / why stopped
 
-2026-11-06 用户确认：“还是一样”指 P1 的“窗口放大后界面只画左上角
-1280×800”问题**仍然存在**，因时间暂停；不是 P2 启动失败。最后一次 P2 运行时
-启动器是 1216×1376（与 Zen 平铺），游戏窗口 1216×681，没有补 2446×1376 的
-P2 截图。
+2026-11-06 窗口复测：在 2446×1376 单窗口下启动器铺满窗口，未复现“只画左上角
+1280×800”。只有把窗口压到很小（低于 1100×700）时会被 Hyprland 强制裁切，
+按环境限制处理，**暂定关闭**。旧 P1 的 DBG 输出已从 `DesktopMain.kt`/
+`YmclApp.kt` 删除。
 
 Known gaps to pick up next time:
-1. **窗口问题（已确认仍在，暂停）**：收集 `hyprctl activewindow -j`、`grim`
-   截图和触发动作；旧 P1 的 DBG 输出已从 `DesktopMain.kt`/`YmclApp.kt` 删除，
-   需要时临时加回。修复前不要宣称已解决。
-2. **P2 acceptance report** is not written. The prompt requires a final report
+1. **P2 acceptance report** is not written. The prompt requires a final report
    with file:line list, `git log --oneline p1-baseline..HEAD`, tags, and rollback
    commands.
-3. **Log stream encoding fallback** is not implemented: HMCLCore's
+2. **Log stream encoding fallback** is not implemented: HMCLCore's
    `ManagedProcess`/`StreamPump` decodes with `OperatingSystem.NATIVE_CHARSET`
    (UTF-8 on this Linux box). The required UTF-8 → CP936 fallback for process
    streams is still open; file reading already has it via `readTextAuto`.
-4. **Diagnostics page content** is still the P1 fake conclusion/clues; only the
+3. **Diagnostics page content** is still the P1 fake conclusion/clues; only the
    right-hand log panel is real (P5 owns the analysis rules).
-5. Total play time is always 0; only last-launch time is persisted.
-6. The Java probe test used a temporary JRE 8; it and its registry entry were
+4. Total play time is always 0; only last-launch time is persisted.
+5. The Java probe test used a temporary JRE 8; it and its registry entry were
    removed. `runtimes.json` is back to 3 system runtimes.
 
 ## Resume

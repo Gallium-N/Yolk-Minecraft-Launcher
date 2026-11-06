@@ -56,6 +56,7 @@ engine  GameEngine 接口；HMCL 类型只允许在 desktopMain 的 HmclEngine
 - **不要用 `wmctrl`/`xdotool` 做窗口尺寸结论**。用
   `hyprctl clients -j` / `hyprctl activewindow -j` + `grim`。
 - 改窗口行为后至少验证 1100×700、1600×1000、2446×1376 三档（或说明为何不能）。
+- 2026-11-06 复测：2446×1376 正常，极小尺寸裁切是 Hyprland 限制；不要主动重开窗口问题。
 
 ## HMCL / 许可证
 
