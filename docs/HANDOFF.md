@@ -48,21 +48,13 @@ P2 已验证：15 个本地版本（首屏 12 行、其余滚动；最终启动�
 
 ## 4. 下一步（按顺序，每条有验收）
 
-1. **补 P2 最终验收报告**（`docs/HANDOFF.md` 之外单独写 `docs/p2-report.md`）：
-   `./gradlew build`/`test` 尾部、15 个版本列表证据、`runtimes.json`、真实启动截图、
-   日志前 20 行、退出后 `pgrep -af '[j]ava .*minecraft'` 为空、错误 Java 截图、
-   文件:行清单、`git log/tag`、三条回退命令。
-   验收：报告逐条对应 `prompts/phase2-engine.md` 的验收 1–7。
-2. **CP936：P2 只做解码器纯函数，端到端留给 P7/Windows。** 已完成
-   `decodeLogBytes(bytes)` + 4 个 GBK/UTF-8 单测（总计 23 tests），**没有**改
-   pump；`DefaultLauncher.startMonitors()` 仍在 HMCLCore 内用 `command.encoding`
-   解码。要字节级端到端回退只有自管进程（会重写已验证启动路径）或改 vendor
-   源码（禁止），故留到 P7/自管进程阶段。P2 Linux 验收 UTF-8。
-3. **P3 下载与安装**：原版清单、Forge/NeoForge/Fabric/Quilt 安装、下载源切换。
-   验收：空目录能装出一个可启动实例，且不覆盖已有实例。
-4. **P5 诊断（P2 交接不处理）**：类名→jar 索引、规则证据链、Mixin 冲突；把
-   `DiagnosticsPage` 左侧假数据换成真实规则结果。
-   验收：拿真实 crash-report 给出结论 + 证据 + 一键处置。
+1. **P3 下载与安装**：版本清单缓存、BMCLAPI 默认（可关）的下载源抽象、原版安装、
+   加载器安装（Fabric/Forge/NeoForge）。任务书以 `prompts/phase3-install.md`（v1.1）
+   为准，BMCLAPI 默认、可关，不要用旧版记忆。
+   验收：空目录能装出一个可启动实例；关镜像也能装。
+2. **P5 整合包导入**：mrpack 与 CurseForge zip +
+   `client-overrides/.launcher/instance.json` 可选配置。
+   验收：别人的整合包导入即玩，Prism 也能正常装。
 
 ## 5. 构建/测试/运行
 
@@ -118,7 +110,10 @@ composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
 ## 8. 交接 tag
 
 - `pre-hy4`：首版交接快照（`dd3767b`），保持不动。
-- `pre-hy4-qa`：本次问答澄清后的交接点；用 `git rev-parse pre-hy4-qa` 取 hash。
-- `p2-complete`：**暂不打**；等 `docs/p2-report.md` 写完后，再单独打。
+- `pre-hy4-qa`：问答澄清后的交接点（`5d86b83`）。
+- `p2-complete`：P2 最终验收报告完成点（`57f8d6e`）。
+- `hy4-start`：**给下一个 agent 的推荐起手点**（P2 收尾清理完成点）；
+  `pre-hy4` / `pre-hy4-qa` 是修复前的快照，从它们起手会继承
+  `gradle.properties` 的绝对路径问题。
 回退：`git switch main && git branch -D p2-engine` 丢弃 P2；
 `git switch -c retry p1-baseline` 从 P1 重开；单步用 `git revert <hash>`。

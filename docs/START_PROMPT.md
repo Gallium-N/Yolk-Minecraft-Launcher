@@ -30,8 +30,8 @@ YMCL（Yolk Minecraft Launcher）：Kotlin + Compose Multiplatform 桌面 Minecr
    `git tag --list`
 2. 确认当前在 `p2-engine` 分支且工作树干净；有未提交改动就停下问我，不要覆盖。
 3. 运行 `./gradlew build`，记录 BUILD SUCCESSFUL/FAILED 和测试数量。
-   JDK 21 / Gradle 8.14；本机 `gradle.properties` 已固定 JDK 21，换机器时改成
-   本机 JDK 21，或让 `JAVA_HOME` 指向它。
+   JDK 21 / Gradle 8.14；本机 JDK 21 通过 `JAVA_HOME` 或
+   `~/.gradle/gradle.properties` 指定，仓库内不写任何绝对路径。
 4. 用 5–8 行汇报：
    - 构建结果；
    - 当前分支、HEAD、`pre-hy4-qa` 指向；

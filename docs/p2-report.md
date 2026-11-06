@@ -15,8 +15,8 @@
 |---|---|
 | **已验证（本轮复跑）** | `./gradlew build` / `./gradlew test`；23 个测试；15 个版本目录；`runtimes.json`；日志前 20 行；日志落盘 UTF-8；`pgrep` 无游戏进程；分层纪律 grep；git log/tag/hash |
 | **沿用证据（2026-11-05 现场，本轮未复跑）** | Forge 1.20.1 进入主菜单截图；正常退出码 0 / kill 143；错误 Java UI 截图；实例页「15 个实例、首屏 12 行」 |
-| **已知限制（范围修正，非 P2 缺口）** | 进程流端到端 CP936 回退留 P7/Windows（见 §验收 1 与 §遗留）；总游玩时长恒 0 |
-| **已移交 P5（P2 不处理）** | 诊断页左侧 P1 假数据；P2 只接了右下真实日志面板 |
+| **已知限制（范围修正，非 P2 缺口）** | 进程流端到端 CP936 回退留后续自管进程 / Windows 中文 locale 阶段（见 §验收 1 与 §遗留）；总游玩时长恒 0 |
+| **已移交 P6 诊断（P2 不处理）** | 诊断页左侧 P1 假数据；P2 只接了右下真实日志面板 |
 | **阻塞** | 无 |
 
 ---
@@ -57,7 +57,7 @@ TOTAL tests=23 failures=0 errors=0
 - `readTextAuto` 改为复用该函数（`Platform.desktop.kt:201`），文件读取行为不变。
 - 4 个单测：`TextFilesTest.kt:54/60/66/72`（GBK 字节数组、GBK 字节流、UTF-8 不误判、UTF-8 BOM）。
 - **没有**改 `DefaultLauncher`、**没有**改 `vendor/hmcl/` 源码、**没有**重写已验证的 Forge 启动路径。
-- 原因：`DefaultLauncher.startMonitors()`（`vendor/hmcl/.../DefaultLauncher.java:1019`）用 `command.encoding`（Linux = `-Dfile.encoding=UTF-8`）建 `StreamPump`（同文件 `:1021/:1026`），字节在 HMCLCore 内已解成 String；`HmclEngine.kt:150` 的 `ProcessListener` 拿到的是 `onLog(String)`，原始字节不可恢复。字节级端到端只有「自管 `ProcessBuilder`（重写启动路径）」或「改 vendor 源码（硬规则禁止）」两条路，故留到 P7/自管进程阶段。**P2 Linux 验收 UTF-8，这是范围修正，不是原始任务书已全量完成。**
+- 原因：`DefaultLauncher.startMonitors()`（`vendor/hmcl/.../DefaultLauncher.java:1019`）用 `command.encoding`（Linux = `-Dfile.encoding=UTF-8`）建 `StreamPump`（同文件 `:1021/:1026`），字节在 HMCLCore 内已解成 String；`HmclEngine.kt:150` 的 `ProcessListener` 拿到的是 `onLog(String)`，原始字节不可恢复。字节级端到端只有「自管 `ProcessBuilder`（重写启动路径）」或「改 vendor 源码（硬规则禁止）」两条路，故留到后续自管进程阶段（Windows 中文 locale）。**P2 Linux 验收 UTF-8，这是范围修正，不是原始任务书已全量完成。**
 
 ---
 
@@ -210,14 +210,14 @@ Java 版本不匹配：1.20.1 需要 Java 17 或更高，当前是 Temurin 1.8.0
 | `composeApp/src/commonMain/.../engine/FakeGameEngine.kt` | 全文 | P1 假引擎 |
 | `composeApp/src/commonMain/.../domain/JavaRuntime.kt` | 全文 | `JavaRuntime` 模型（纯 Kotlin，无 `java.io`） |
 | `composeApp/src/commonMain/.../ui/pages/InstancesPage.kt` | 全文 | 真实版本列表接线 |
-| `composeApp/src/commonMain/.../ui/pages/DiagnosticsPage.kt` | `:254` | 右下真实日志面板（左侧假数据属 P5） |
+| `composeApp/src/commonMain/.../ui/pages/DiagnosticsPage.kt` | `:254` | 右下真实日志面板（左侧假数据属 P6 诊断） |
 | `composeApp/src/commonMain/.../ui/pages/SettingsPage.kt` | 全文 | 游戏目录 + Java 列表 + 关于 HMCL 声明 |
 | `composeApp/src/desktopMain/.../engine/HmclEngine.kt` | `:55` `:69` `:72` `:104` `:110-115` `:138-140` `:150-181` `:183-184` `:223` `:233-253` `:255-308` `:310-368` `:376-400` `:403-451` | 类定义 / 探测 / 列版本 / 启动 / Java 预检 / UTF-8 落盘 / `ProcessListener` / `DefaultLauncher.launch()` / 等退出 / 进程树清理 / manifest 解析 / MC 版本·加载器·Java 判定 / 历史 / `HmclGameInstance` |
 | `composeApp/src/desktopMain/.../platform/Platform.desktop.kt` | `:54` `:184` `:201` `:207` `:219` | Java 探测 / `decodeLogBytes` / `readTextAuto` / 字节解码 / UTF-8 无 BOM 写入 |
 | `composeApp/src/desktopTest/.../TextFilesTest.kt` | `:54/60/66/72` | 4 个新增编码单测 |
 | `composeApp/src/desktopTest/.../JavaRegistryTest.kt` | `:41` | 注册表读写单测 |
 | `composeApp/build.gradle.kts` / `settings.gradle.kts` / `gradle/libs.versions.toml` | — | 引入 vendored `:hmcl-core` 子项目 |
-| `vendor/README.md` / `vendor/hmcl/HMCLCore/build.gradle.kts` | — | 来源 commit、许可证、同步方式（源码副本未改动） |
+| `vendor/README.md` / `vendor/hmcl/HMCLCore/build.gradle.kts` | — | 来源 commit、许可证、同步方式；Java/Kotlin 源码与资源未改动，`HMCLCore/build.gradle.kts` 为 YMCL 为脱离上游 buildSrc 重写（70 行） |
 | `LICENSE` / `README.md` / `AGENTS.md` / `NOTES.md` | — | GPLv3、项目说明、硬规则、设计规则 |
 | `docs/hmcl-api-notes.md` / `docs/HANDOFF.md` / `docs/p2-status.md` / `docs/codebuddy-qa.md` | — | API 侦察 / 交接 / 现场快照 / 疑问回执 |
 
@@ -297,18 +297,22 @@ git revert <hash>                                # 只撤某一步（不改写�
 
 ## 遗留与移交（不计入 P2 验收缺口）
 
-1. **CP936 进程流端到端回退 → P7/Windows**：`decodeLogBytes` 纯函数 + 4 单测已完成；替换 `DefaultLauncher.startMonitors()` 的 pump 需要自管进程或改 vendor 源码，会重写已验证的 Forge 启动路径或违反硬规则。P2 Linux 验收 UTF-8。**范围修正，非未完成项**（`docs/codebuddy-qa.md` Q1、HANDOFF 第 4 节第 2 条）。
-2. **诊断页左侧假数据 → P5**：P2 只把右下日志面板接了真实日志流（`DiagnosticsPage.kt:254`）；左侧结论/线索卡仍是 P1 假数据，P5 用真实规则结果替换。HANDOFF 第 4 节第 4 条已标注「P2 交接不处理」（Q5）。
+1. **CP936 进程流端到端回退 → 后续自管进程 / Windows 中文 locale 阶段**：`decodeLogBytes` 纯函数 + 4 单测已完成；替换 `DefaultLauncher.startMonitors()` 的 pump 需要自管进程或改 vendor 源码，会重写已验证的 Forge 启动路径或违反硬规则。P2 Linux 验收 UTF-8。**范围修正，非未完成项**（`docs/codebuddy-qa.md` Q1）。
+2. **诊断页左侧假数据 → P6 诊断**：P2 只把右下日志面板接了真实日志流（`DiagnosticsPage.kt:254`）；左侧结论/线索卡仍是 P1 假数据，留到 P6 用真实规则结果替换（`NOTES.md` 阶段表；`docs/codebuddy-qa.md` Q5）。
 3. **总游玩时长恒 0**：只持久化 `lastLaunchedAt`（`HmclEngine.kt:376-400`，`launch-history.json` 带 `schemaVersion`），未累计 play time。
 4. **窗口问题已复测关闭**：2446×1376 单窗口铺满，未复现「只画左上角 1280×800」；低于 1100×700 的裁切是 Hyprland 限制。不主动重开，除非再次报告 2446 级别异常（`docs/HANDOFF.md` §3、§6）。
-5. **下一阶段**：P3 下载与安装（HANDOFF 第 4 节第 3 条），不在本报告范围。
+5. **下一阶段**：P3 下载与安装（HANDOFF 第 4 节第 1 条），不在本报告范围。
+6. **启动参数宏未替换 → P3/P4 接正版登录/Realms 前必须处理**：真实日志可见
+   `--clientId, ${clientid}, --xuid, ${auth_xuid}` 未被替换；1.20.1 + Forge 不读这两个参数，
+   当前无影响。日志证据（`~/.local/share/ymcl/data/logs/1_20_1-Forge-1793892804689.log:1`）：
+   `[23:33:25] [main/INFO]: ModLauncher running: args [..., --clientId, ${clientid}, --xuid, ${auth_xuid}, --userType, msa, ...]`。
 
 ---
 
 ## 构建/运行复现
 
 ```bash
-export JAVA_HOME="<JDK 21 home>"   # 本机 gradle.properties 已固定 Temurin 21
+export JAVA_HOME="<JDK 21 home>"   # 通过 JAVA_HOME 或 ~/.gradle/gradle.properties 指定；仓库内不写绝对路径
 ./gradlew build
 ./gradlew test
 ./gradlew :composeApp:createDistributable
