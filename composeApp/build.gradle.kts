@@ -111,3 +111,14 @@ tasks.register<JavaExec>("installSelfCheck") {
         rootProject.layout.buildDirectory.file("p3-vanilla-menu.png").get().asFile.absolutePath,
     )
 }
+
+// A-group structural proof: real stalls, candidate failure reasons, failure list.
+// -Dymcl.a3=true switches to the deliberate non-zero-exit case.
+tasks.register<JavaExec>("stallSelfCheck") {
+    group = "verification"
+    description = "Runs the P3 A-group structural self-check."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.StallSelfCheckKt")
+    System.getProperty("ymcl.a3")?.let { systemProperty("ymcl.a3", it) }
+}

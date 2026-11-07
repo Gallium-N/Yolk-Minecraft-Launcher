@@ -15,12 +15,13 @@ data class DownloadSpec(
     val unpackNativesTo: String? = null,
 )
 
-data class DownloadResponseMeta(
+/** The whole body is buffered in memory by the transport, then written once. */
+data class DownloadPayload(
     val statusCode: Int,
     val finalUrl: String,
     val bmclapiHash: String?,
     val bytesWritten: Long,
-    /** False when a Range was requested but the server replied 200 (Range ignored). */
+    val bytes: ByteArray,
     val rangeHonored: Boolean = true,
 )
 
@@ -36,15 +37,23 @@ data class DownloadOutcome(
 
 class DownloadCancelledException : Exception("下载已取消")
 
-/** Body transfer exceeded the per-file deadline; the transport has closed the stream. */
-class DownloadDeadlineException(val host: String, val elapsedMs: Long) :
-    Exception("body deadline exceeded: host=$host elapsedMs=$elapsedMs")
+/** No new bytes for the stall window; the transport closed the stream. */
+class DownloadStallException(val host: String, val stallMs: Long) :
+    Exception("stall: host=$host stallMs=$stallMs") {
+    val label: String get() = "STALL@${stallMs / 1000}s"
+}
+
+/** Total per-file deadline exceeded; the transport cancelled the future. */
+class DownloadTotalTimeoutException(val host: String, val totalMs: Long) :
+    Exception("total timeout: host=$host totalMs=$totalMs") {
+    val label: String get() = "TIMEOUT@${totalMs / 1000}s"
+}
 
 class DownloadFailedException(message: String) : Exception(message)
 
-/** Streams one GET into [write]; the callback may throw [DownloadCancelledException]. */
+/** Buffers one GET fully in memory; throws on stall / total deadline. */
 fun interface DownloadTransport {
-    fun get(url: String, rangeStart: Long, write: (ByteArray) -> Unit): DownloadResponseMeta
+    fun get(url: String, rangeStart: Long): DownloadPayload
 }
 
 /** All paths are relative to the isolated game directory. */
@@ -118,13 +127,29 @@ class GameDownloader(
         }
     }
 
+    private fun failCandidate(
+        target: String,
+        part: String,
+        label: String,
+        host: String,
+        reason: String,
+        errors: MutableList<String>,
+        ordered: List<CandidateUrl>,
+        index: Int,
+    ) {
+        log("$target <- $host$label")
+        health.recordFailure(host)
+        errors += reason
+        fs.delete(part)
+        logSwitch(target, ordered, index)
+    }
+
     fun download(spec: DownloadSpec): DownloadOutcome {
         val target = spec.relativePath
         val part = "$target.part"
         val start = System.currentTimeMillis()
         checkCancelled(part)
 
-        // A complete local file that already matches the manifest never needs a request.
         if ((spec.expectedSha1 != null || spec.expectedSize != null) &&
             fs.exists(target) && verify(fs.sha1Of(target), fs.size(target), spec)
         ) {
@@ -144,46 +169,38 @@ class GameDownloader(
                 val rangeStart = if (fs.exists(part) && fs.size(part) > 0) fs.size(part) else 0L
                 if (rangeStart == 0L) fs.delete(part)
 
-                val meta = try {
-                    transport.get(candidate.url, rangeStart) { chunk ->
-                        checkCancelled(part)
-                        fs.append(part, chunk)
-                    }
-                } catch (e: DownloadDeadlineException) {
-                    log("$target <- ${e.host}TIMEOUT@90s")
-                    health.recordFailure(e.host)
-                    errors += "${candidate.url}#$attempt -> TIMEOUT@90s (${e.elapsedMs}ms)"
-                    fs.delete(part)
-                    logSwitch(target, ordered, candidateIndex)
+                val payload = try {
+                    transport.get(candidate.url, rangeStart)
+                } catch (e: DownloadStallException) {
+                    failCandidate(target, part, e.label, e.host,
+                        "${candidate.url}#$attempt -> ${e.label}", errors, ordered, candidateIndex)
+                    break
+                } catch (e: DownloadTotalTimeoutException) {
+                    failCandidate(target, part, e.label, e.host,
+                        "${candidate.url}#$attempt -> ${e.label}", errors, ordered, candidateIndex)
                     break
                 } catch (e: DownloadCancelledException) {
                     throw e
                 } catch (e: Exception) {
-                    health.recordFailure(host)
-                    errors += "${candidate.url}#$attempt -> ${e.javaClass.simpleName}: ${e.message}"
-                    fs.delete(part)
-                    logSwitch(target, ordered, candidateIndex)
+                    failCandidate(target, part, "FAILED", host,
+                        "${candidate.url}#$attempt -> ${e.javaClass.simpleName}: ${e.message}",
+                        errors, ordered, candidateIndex)
                     break
                 }
 
-                if (meta.statusCode !in 200..299) {
-                    health.recordFailure(host)
-                    errors += "${candidate.url}#$attempt -> HTTP ${meta.statusCode}"
-                    fs.delete(part)
-                    logSwitch(target, ordered, candidateIndex)
+                if (payload.statusCode !in 200..299) {
+                    failCandidate(target, part, "HTTP${payload.statusCode}", host,
+                        "${candidate.url}#$attempt -> HTTP ${payload.statusCode}", errors, ordered, candidateIndex)
                     break
                 }
-
-                // Server ignored Range: restart this candidate from zero.
-                if (!meta.rangeHonored) {
+                if (!payload.rangeHonored) {
                     fs.delete(part)
                     continue
                 }
 
-                // x-bmclapi-hash: only a 40-char hex digest, only agrees with the
-                // manifest sha1 when one exists, and only to skip an existing local
-                // file. It is NEVER used to verify a freshly downloaded file.
-                val hash = meta.bmclapiHash
+                // x-bmclapi-hash: 40-char hex only, must agree with the manifest sha1
+                // when one exists, and only to skip an already-present local file.
+                val hash = payload.bmclapiHash
                 val hashUsable = hash != null && SHA1_REGEX.matches(hash) &&
                     (spec.expectedSha1 == null || hash.equals(spec.expectedSha1, ignoreCase = true))
                 if (hashUsable && fs.exists(target) &&
@@ -193,12 +210,13 @@ class GameDownloader(
                     val bytes = fs.size(target)
                     val elapsed = System.currentTimeMillis() - start
                     health.recordSuccess(host)
-                    health.observe(host, hostOf(meta.finalUrl))
                     bump(bytes, target)
                     log("$target <- ${candidate.sourceId} ${elapsed}ms ${bytes}B (bmclapi-hash skip)")
-                    return DownloadOutcome(target, candidate.sourceId, elapsed, bytes, true, redownloaded, meta.finalUrl)
+                    return DownloadOutcome(target, candidate.sourceId, elapsed, bytes, true, redownloaded, payload.finalUrl)
                 }
 
+                checkCancelled(part)
+                fs.append(part, payload.bytes)
                 val actualSha1 = fs.sha1Of(part)
                 val actualSize = fs.size(part)
                 if (!verify(actualSha1, actualSize, spec)) {
@@ -208,7 +226,7 @@ class GameDownloader(
                     fs.delete(target)
                     if (attempt == 1) {
                         redownloaded = true
-                        continue // exactly one redownload
+                        continue
                     }
                     throw DownloadFailedException(
                         "$target：重下一次后校验仍失败（期望 sha1=${spec.expectedSha1} / 实际=$actualSha1，" +
@@ -223,20 +241,19 @@ class GameDownloader(
                 }
                 val elapsed = System.currentTimeMillis() - start
                 health.recordSuccess(host)
-                health.observe(host, hostOf(meta.finalUrl))
+                health.observe(host, hostOf(payload.finalUrl))
                 log("$target <- ${candidate.sourceId} ${elapsed}ms ${actualSize}B")
-                if (meta.finalUrl != candidate.url) {
-                    log("  $target 302 -> ${meta.finalUrl}")
+                if (payload.finalUrl != candidate.url) {
+                    log("  $target 302 -> ${payload.finalUrl}")
                 }
                 bump(actualSize, target)
-                return DownloadOutcome(target, candidate.sourceId, elapsed, actualSize, false, redownloaded, meta.finalUrl)
+                return DownloadOutcome(target, candidate.sourceId, elapsed, actualSize, false, redownloaded, payload.finalUrl)
             }
         }
         bump(0, target, failed = true)
         throw DownloadFailedException("$target：所有候选失败；" + errors.joinToString("; "))
     }
 
-    /** Called by the orchestrator after cancellation to remove every leftover .part. */
     fun cleanupParts(paths: List<String>) {
         paths.forEach { fs.delete("$it.part") }
     }

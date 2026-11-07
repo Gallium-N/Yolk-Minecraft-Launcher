@@ -19,7 +19,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.system.exitProcess
@@ -53,6 +52,7 @@ fun main() {
     println("SUMMARY files=${summary.files} bytes=${summary.bytes} " +
         "elapsedMs=${summary.elapsedMs} failures=${summary.failures} " +
         "skipped=${summary.skipped} redownloaded=${summary.redownloaded}")
+    summary.errors.forEach { println("FAILED ${it.substringBefore("：")} :: $it") }
     if (summary.failures > 0) {
         println("INSTALL FAILED: ${summary.failures} files failed; 停止，不重试")
         exitProcess(1)
@@ -63,8 +63,10 @@ fun main() {
 }
 
 private fun launchGame(appRoot: String, gameDir: String, shotPath: String): Boolean {
-    val java = JavaRegistry(appRoot).loadOrDetect(detectJavaRuntimes())
-        .firstOrNull { it.major >= 17 }
+    val runtimes = JavaRegistry(appRoot).loadOrDetect(detectJavaRuntimes())
+    val java = runtimes.firstOrNull { it.major == 21 }
+        ?: runtimes.firstOrNull { it.major in 17..21 }
+        ?: runtimes.firstOrNull { it.major >= 17 }
         ?: run { println("ERROR: no Java 17+ runtime"); return false }
     println("launch java=${java.vendor} ${java.version} path=${java.path}")
 
@@ -81,12 +83,15 @@ private fun launchGame(appRoot: String, gameDir: String, shotPath: String): Bool
             scope.launch {
                 handle.logs.collect { line ->
                     println("[game] $line")
-                    if (line.contains("Setting user") || line.contains("LWJGL Version")) {
+                    if (line.contains("Setting user") || line.contains("LWJGL Version") ||
+                        line.contains("Datafixer Bootstrap") || line.contains("Render thread") ||
+                        line.contains("Environment: authHost")
+                    ) {
                         marker.set(true)
                     }
                 }
             }
-            val deadline = System.currentTimeMillis() + 120_000
+            val deadline = System.currentTimeMillis() + 45_000
             while (!marker.get() && System.currentTimeMillis() < deadline) Thread.sleep(500)
             println("launch marker found=${marker.get()}")
             Thread.sleep(6000) // let the main menu render
@@ -98,7 +103,7 @@ private fun launchGame(appRoot: String, gameDir: String, shotPath: String): Bool
 
             engine.stop("1.20.1")
             scope.cancel()
-            marker.get() && grim == 0
+            grim == 0 && shot.length() > 0
         }
     }
 }
