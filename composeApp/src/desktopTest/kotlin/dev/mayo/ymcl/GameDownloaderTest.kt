@@ -141,8 +141,8 @@ class GameDownloaderTest {
         }
         val fs = FakeFs()
         val outcome = GameDownloader(transport, fs) { logs += it }
-            .download(spec(CandidateUrl("https://slow.example/f", "bmclapi"),
-                CandidateUrl("https://fast.example/f", "official"), sha1 = sha1(good)))
+            .download(spec(CandidateUrl("http://slow.example/f", "bmclapi"),
+                CandidateUrl("http://fast.example/f", "official"), sha1 = sha1(good)))
         assertEquals("official", outcome.sourceId)
         assertTrue(logs.any { it.contains("cdn-slow.exampleSTALL@30s") })
         assertTrue(logs.any { it.contains("-> official") })
@@ -156,7 +156,7 @@ class GameDownloaderTest {
         val downloader = GameDownloader(transport, fs) { logs += it }
         repeat(2) {
             try {
-                downloader.download(spec(CandidateUrl("https://slow.example/f", "bmclapi")))
+                downloader.download(spec(CandidateUrl("http://slow.example/f", "bmclapi")))
             } catch (_: DownloadFailedException) {
             }
         }
@@ -169,8 +169,8 @@ class GameDownloaderTest {
         val fs = FakeFs()
         try {
             GameDownloader(transport, fs) { }.download(
-                spec(CandidateUrl("https://a.example/f", "bmclapi"),
-                    CandidateUrl("https://b.example/f", "official")),
+                spec(CandidateUrl("http://a.example/f", "bmclapi"),
+                    CandidateUrl("http://b.example/f", "official")),
             )
             fail("expected DownloadFailedException")
         } catch (e: DownloadFailedException) {
@@ -188,7 +188,7 @@ class GameDownloaderTest {
         val failures = mutableListOf<String>()
         listOf("ok-ish.bin", "broken.bin").forEach { name ->
             try {
-                downloader.download(DownloadSpec(name, listOf(CandidateUrl("https://x.example/f", "bmclapi"))))
+                downloader.download(DownloadSpec(name, listOf(CandidateUrl("http://x.example/f", "bmclapi"))))
             } catch (e: DownloadFailedException) {
                 failures += "$name: ${e.message}"
             }

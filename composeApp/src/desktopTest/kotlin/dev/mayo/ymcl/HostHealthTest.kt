@@ -23,11 +23,11 @@ class HostHealthTest {
         health.recordSuccess("good.example")
         val ranked = health.rank(
             listOf(
-                CandidateUrl("https://bad.example/f", "official"),
-                CandidateUrl("https://good.example/f", "bmclapi"),
+                CandidateUrl("http://bad.example/f", "official"),
+                CandidateUrl("http://good.example/f", "bmclapi"),
             ),
         )
-        assertEquals("https://good.example/f", ranked[0].url)
+        assertEquals("http://good.example/f", ranked[0].url)
         assertEquals(1L, health.successCount("good.example"))
     }
 
@@ -39,11 +39,11 @@ class HostHealthTest {
         health.recordFailure("cdn-bad.example")
         val ranked = health.rank(
             listOf(
-                CandidateUrl("https://bmclapi2.bangbang93.com/f", "bmclapi"),
-                CandidateUrl("https://libraries.minecraft.net/f", "official"),
+                CandidateUrl("http://bmclapi2.bangbang93.com/f", "bmclapi"),
+                CandidateUrl("http://libraries.minecraft.net/f", "official"),
             ),
         )
-        assertEquals("https://libraries.minecraft.net/f", ranked[0].url)
+        assertEquals("http://libraries.minecraft.net/f", ranked[0].url)
     }
 
     @Test
@@ -54,8 +54,8 @@ class HostHealthTest {
         health.recordFailure("b.example")
         health.recordFailure("b.example")
         val candidates = listOf(
-            CandidateUrl("https://a.example/f", "x"),
-            CandidateUrl("https://b.example/f", "y"),
+            CandidateUrl("http://a.example/f", "x"),
+            CandidateUrl("http://b.example/f", "y"),
         )
         assertEquals(candidates, health.rank(candidates))
     }
