@@ -1,7 +1,9 @@
 package dev.mayo.ymcl.platform
 
+import dev.mayo.ymcl.app.DownloadDeadlineException
 import dev.mayo.ymcl.app.DownloadResponseMeta
 import dev.mayo.ymcl.app.DownloadTransport
+import dev.mayo.ymcl.app.hostOf
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -9,8 +11,17 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 
-/** Connect 20s / read 60s / per-file total 120s; 302 followed, Range honoured. */
+/**
+ * Connect 20s / read 60s (headers) / per-file total 120s; 302 followed.
+ * The body stream has its own 90s deadline from the first byte to the last:
+ * HttpRequest.timeout does NOT cover body reads, so we check elapsed time
+ * between chunks and close the stream ourselves.
+ */
 class HttpDownloadTransport : DownloadTransport {
+    companion object {
+        const val BODY_DEADLINE_MS = 90_000L
+    }
+
     private val client: HttpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(20))
         .followRedirects(HttpClient.Redirect.NORMAL)
@@ -27,6 +38,7 @@ class HttpDownloadTransport : DownloadTransport {
             .orTimeout(120, TimeUnit.SECONDS).get()
         val code = response.statusCode()
         val finalUrl = response.uri().toString()
+        val finalHost = hostOf(finalUrl)
         val hash = response.headers().firstValue("x-bmclapi-hash").orElse(null)
 
         if (code !in 200..299) {
@@ -40,12 +52,21 @@ class HttpDownloadTransport : DownloadTransport {
         }
 
         var written = 0L
+        var firstByteAt = 0L
+        val waitStart = System.currentTimeMillis()
         response.body().use { input ->
             val buffer = ByteArray(64 * 1024)
             while (true) {
+                val now = System.currentTimeMillis()
+                val elapsed = now - if (firstByteAt == 0L) waitStart else firstByteAt
+                if (elapsed > BODY_DEADLINE_MS) {
+                    input.close()
+                    throw DownloadDeadlineException(finalHost, elapsed)
+                }
                 val n = input.read(buffer)
                 if (n < 0) break
                 if (n > 0) {
+                    if (firstByteAt == 0L) firstByteAt = System.currentTimeMillis()
                     write(buffer.copyOf(n))
                     written += n
                 }

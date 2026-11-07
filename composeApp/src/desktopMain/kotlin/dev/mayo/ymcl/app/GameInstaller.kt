@@ -127,9 +127,21 @@ class GameInstaller(
         log("install plan: files=${specs.size} expectedBytes=$totalBytes")
 
         val pool = Executors.newFixedThreadPool(8)
+        val doneCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val doneBytes = java.util.concurrent.atomic.AtomicLong(0)
         val results = try {
             val futures = specs.map { spec ->
-                pool.submit(Callable { runCatching { downloader.download(spec) } })
+                pool.submit(Callable {
+                    val result = runCatching { downloader.download(spec) }
+                    result.getOrNull()?.let { outcome ->
+                        val n = doneCount.incrementAndGet()
+                        val b = doneBytes.addAndGet(outcome.bytes)
+                        if (n % 50 == 0) {
+                            log("progress files=$n bytes=$b elapsedMs=${System.currentTimeMillis() - start}")
+                        }
+                    }
+                    result
+                })
             }
             futures.map { it.get() }
         } finally {

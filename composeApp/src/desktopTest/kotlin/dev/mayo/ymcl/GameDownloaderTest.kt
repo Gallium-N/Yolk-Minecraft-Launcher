@@ -2,6 +2,8 @@ package dev.mayo.ymcl
 
 import dev.mayo.ymcl.app.CandidateUrl
 import dev.mayo.ymcl.app.DownloadCancelledException
+import dev.mayo.ymcl.app.DownloadDeadlineException
+import dev.mayo.ymcl.app.DownloadFailedException
 import dev.mayo.ymcl.app.DownloadFileSystem
 import dev.mayo.ymcl.app.DownloadResponseMeta
 import dev.mayo.ymcl.app.DownloadSpec
@@ -149,5 +151,46 @@ class GameDownloaderTest {
         val notSkipped = GameDownloader(transportInvalid, fsInvalid) { }
             .download(spec(CandidateUrl("url", "bmclapi")))
         assertFalse(notSkipped.skipped)
+    }
+
+    @Test
+    fun `body deadline logs TIMEOUT and switches to next candidate`() {
+        val logs = mutableListOf<String>()
+        val good = "payload".toByteArray()
+        val transport = FakeTransport { url, _, write ->
+            if (url.contains("slow")) throw DownloadDeadlineException("cdn-slow.example", 90_001L)
+            write(good)
+            DownloadResponseMeta(200, url, null, good.size.toLong())
+        }
+        val fs = FakeFs()
+        val downloader = GameDownloader(transport, fs) { logs += it }
+        val outcome = downloader.download(
+            spec(
+                CandidateUrl("https://slow.example/f", "bmclapi"),
+                CandidateUrl("https://fast.example/f", "official"),
+                sha1 = sha1(good),
+            ),
+        )
+        assertEquals("official", outcome.sourceId)
+        assertTrue(logs.any { it.contains("cdn-slow.exampleTIMEOUT@90s") })
+        assertTrue(logs.any { it.contains("-> official") })
+    }
+
+    @Test
+    fun `two deadline failures from one cdn degrade that host`() {
+        val logs = mutableListOf<String>()
+        val transport = FakeTransport { _, _, _ ->
+            throw DownloadDeadlineException("cdn-slow.example", 90_001L)
+        }
+        val fs = FakeFs()
+        val downloader = GameDownloader(transport, fs) { logs += it }
+        repeat(2) {
+            try {
+                downloader.download(spec(CandidateUrl("https://slow.example/f", "bmclapi")))
+            } catch (_: DownloadFailedException) {
+                // no usable candidate, expected
+            }
+        }
+        assertTrue(logs.any { it.contains("host=cdn-slow.example degraded after 2 failures") })
     }
 }

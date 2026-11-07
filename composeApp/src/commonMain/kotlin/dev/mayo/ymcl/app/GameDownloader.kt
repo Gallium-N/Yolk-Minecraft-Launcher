@@ -36,6 +36,10 @@ data class DownloadOutcome(
 
 class DownloadCancelledException : Exception("下载已取消")
 
+/** Body transfer exceeded the per-file deadline; the transport has closed the stream. */
+class DownloadDeadlineException(val host: String, val elapsedMs: Long) :
+    Exception("body deadline exceeded: host=$host elapsedMs=$elapsedMs")
+
 class DownloadFailedException(message: String) : Exception(message)
 
 /** Streams one GET into [write]; the callback may throw [DownloadCancelledException]. */
@@ -59,15 +63,15 @@ interface DownloadFileSystem {
 private val SHA1_REGEX = Regex("^[0-9a-fA-F]{40}$")
 
 /**
- * Downloads one file: ordered candidates, .part resume, sha1/size verification,
+ * Downloads one file: health-ranked candidates, .part resume, sha1/size verification,
  * exactly one redownload on mismatch, and immediate cancellation with .part cleanup.
- * Game-file downloader for P3 step 3; runs concurrently (one call per file).
  */
 class GameDownloader(
     private val transport: DownloadTransport,
     private val fs: DownloadFileSystem,
     private val log: (String) -> Unit = ::println,
 ) {
+    private val health = HostHealth(log)
     private val _progress = MutableStateFlow(DownloadProgress())
     val progress: StateFlow<DownloadProgress> get() = _progress
 
@@ -105,6 +109,15 @@ class GameDownloader(
         }
     }
 
+    private fun logSwitch(target: String, ordered: List<CandidateUrl>, index: Int) {
+        val next = ordered.getOrNull(index + 1)
+        if (next != null) {
+            log("  $target -> ${next.sourceId} (${hostOf(next.url)})")
+        } else {
+            log("  $target -> no more candidates")
+        }
+    }
+
     fun download(spec: DownloadSpec): DownloadOutcome {
         val target = spec.relativePath
         val part = "$target.part"
@@ -121,9 +134,11 @@ class GameDownloader(
             return DownloadOutcome(target, "cached", 0L, bytes, true, false, target)
         }
 
+        val ordered = health.rank(spec.candidates)
         val errors = mutableListOf<String>()
         var redownloaded = false
-        for (candidate in spec.candidates) {
+        for ((candidateIndex, candidate) in ordered.withIndex()) {
+            val host = hostOf(candidate.url)
             for (attempt in 1..2) {
                 checkCancelled(part)
                 val rangeStart = if (fs.exists(part) && fs.size(part) > 0) fs.size(part) else 0L
@@ -134,17 +149,28 @@ class GameDownloader(
                         checkCancelled(part)
                         fs.append(part, chunk)
                     }
+                } catch (e: DownloadDeadlineException) {
+                    log("$target <- ${e.host}TIMEOUT@90s")
+                    health.recordFailure(e.host)
+                    errors += "${candidate.url}#$attempt -> TIMEOUT@90s (${e.elapsedMs}ms)"
+                    fs.delete(part)
+                    logSwitch(target, ordered, candidateIndex)
+                    break
                 } catch (e: DownloadCancelledException) {
                     throw e
                 } catch (e: Exception) {
+                    health.recordFailure(host)
                     errors += "${candidate.url}#$attempt -> ${e.javaClass.simpleName}: ${e.message}"
                     fs.delete(part)
-                    break // switch to the next candidate
+                    logSwitch(target, ordered, candidateIndex)
+                    break
                 }
 
                 if (meta.statusCode !in 200..299) {
+                    health.recordFailure(host)
                     errors += "${candidate.url}#$attempt -> HTTP ${meta.statusCode}"
                     fs.delete(part)
+                    logSwitch(target, ordered, candidateIndex)
                     break
                 }
 
@@ -166,6 +192,8 @@ class GameDownloader(
                     fs.delete(part)
                     val bytes = fs.size(target)
                     val elapsed = System.currentTimeMillis() - start
+                    health.recordSuccess(host)
+                    health.observe(host, hostOf(meta.finalUrl))
                     bump(bytes, target)
                     log("$target <- ${candidate.sourceId} ${elapsed}ms ${bytes}B (bmclapi-hash skip)")
                     return DownloadOutcome(target, candidate.sourceId, elapsed, bytes, true, redownloaded, meta.finalUrl)
@@ -194,6 +222,8 @@ class GameDownloader(
                     fs.unpackNatives(fs.readAll(target), spec.unpackNativesTo)
                 }
                 val elapsed = System.currentTimeMillis() - start
+                health.recordSuccess(host)
+                health.observe(host, hostOf(meta.finalUrl))
                 log("$target <- ${candidate.sourceId} ${elapsed}ms ${actualSize}B")
                 if (meta.finalUrl != candidate.url) {
                     log("  $target 302 -> ${meta.finalUrl}")
