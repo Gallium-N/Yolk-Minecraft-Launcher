@@ -100,7 +100,7 @@ fun main() {
     }
 }
 
-private fun installForge(
+fun installForge(
     gameDir: String,
     mcVersion: String,
     source: dev.mayo.ymcl.app.DownloadSource,

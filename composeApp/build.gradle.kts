@@ -133,3 +133,12 @@ tasks.register<JavaExec>("loaderSelfCheck") {
     System.getProperty("ymcl.loader.mode")?.let { systemProperty("ymcl.loader.mode", it) }
     System.getProperty("ymcl.shot.path")?.let { systemProperty("ymcl.shot.path", it) }
 }
+
+// P3 step-5 end-to-end: three cold installs (vanilla / Fabric / Forge).
+tasks.register<JavaExec>("installE2ESelfCheck") {
+    group = "verification"
+    description = "Runs the P3 end-to-end cold-install self-check."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.E2ESelfCheckKt")
+}
