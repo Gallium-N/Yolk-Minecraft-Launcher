@@ -1,8 +1,8 @@
 package dev.mayo.ymcl
 
+import dev.mayo.ymcl.app.LauncherSettings
 import dev.mayo.ymcl.app.MetaRepository
 import dev.mayo.ymcl.app.UnreachableDownloadSource
-import dev.mayo.ymcl.app.defaultDownloadSource
 import dev.mayo.ymcl.platform.FileMetaStore
 import dev.mayo.ymcl.platform.HttpMetaFetcher
 import dev.mayo.ymcl.platform.appDataDirectory
@@ -11,8 +11,7 @@ import dev.mayo.ymcl.platform.appDataDirectory
 fun main() {
     val appRoot = appDataDirectory()
     val mode = System.getProperty("ymcl.meta.mode") ?: "online"
-    val preferMirror = System.getProperty("ymcl.meta.preferMirror") != "false"
-    val source = if (mode == "offline") UnreachableDownloadSource else defaultDownloadSource(preferMirror)
+    val source = if (mode == "offline") UnreachableDownloadSource else LauncherSettings(appRoot).source()
     val repo = MetaRepository(appRoot, source, FileMetaStore(), HttpMetaFetcher(), System::currentTimeMillis)
 
     println("YMCL meta self-check | appRoot=$appRoot | source=${source.id} | mode=$mode")

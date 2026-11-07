@@ -165,4 +165,41 @@ class MetaRepository(
                 (fetchResult.exceptionOrNull()?.message ?: "unknown"),
         )
     }
+
+    /**
+     * Old MC versions may not work with the newest loader. Try the newest, then
+     * walk back at most [maxFallback] versions; every step is logged.
+     */
+    fun loadFabricProfileWithFallback(
+        mcVersion: String,
+        maxFallback: Int = 3,
+    ): FabricProfileSelection {
+        val loaders = loadFabricLoaderVersions(mcVersion)
+        if (loaders.isEmpty()) throw MetaUnavailableException("Fabric loader 列表为空：$mcVersion")
+        val candidates = loaders.takeLast(maxFallback + 1).reversed()
+        val attempts = mutableListOf<String>()
+        for ((index, loader) in candidates.withIndex()) {
+            val result = runCatching { loadFabricProfile(mcVersion, loader) }
+            if (result.isSuccess) {
+                return FabricProfileSelection(loader, result.getOrThrow().value, attempts)
+            }
+            val reason = result.exceptionOrNull()?.message ?: "unknown"
+            attempts += "$loader: $reason"
+            val next = candidates.getOrNull(index + 1)
+            if (next != null) {
+                println("YMCL fabric: $mcVersion/$loader 的 profile 不可用，回退到 $next（$reason）")
+            } else {
+                println("YMCL fabric: $mcVersion/$loader 的 profile 不可用，无更多可回退版本（$reason）")
+            }
+        }
+        throw MetaUnavailableException(
+            "Fabric profile 全部候选失败：$mcVersion；" + attempts.joinToString("; "),
+        )
+    }
 }
+
+data class FabricProfileSelection(
+    val loaderVersion: String,
+    val profile: FabricProfile,
+    val attempts: List<String>,
+)
