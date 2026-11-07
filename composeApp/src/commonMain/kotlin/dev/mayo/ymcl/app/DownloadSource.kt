@@ -30,6 +30,9 @@ interface DownloadSource {
     fun loaderMaven(group: String, artifact: String, version: String, classifier: String?, ext: String): List<String>
     fun fabricLoaderMetadata(mcVersion: String): List<String>
     fun fabricProfile(mcVersion: String, loaderVersion: String): List<String>
+
+    /** BMCLAPI has no asset-index endpoint (probed 404); the manifest URL is authoritative. */
+    fun assetIndex(id: String, url: String): List<String> = listOf(url)
 }
 
 private fun mavenPath(
@@ -156,6 +159,7 @@ object UnreachableDownloadSource : DownloadSource {
     override fun loaderMaven(group: String, artifact: String, version: String, classifier: String?, ext: String): List<String> = dead()
     override fun fabricLoaderMetadata(mcVersion: String): List<String> = dead()
     override fun fabricProfile(mcVersion: String, loaderVersion: String): List<String> = dead()
+    override fun assetIndex(id: String, url: String): List<String> = dead()
 }
 
 fun defaultDownloadSource(preferMirror: Boolean = true): DownloadSource =

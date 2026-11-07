@@ -97,3 +97,17 @@ tasks.register<JavaExec>("metaSelfCheck") {
     System.getProperty("ymcl.meta.mode")?.let { systemProperty("ymcl.meta.mode", it) }
     System.getProperty("ymcl.meta.preferMirror")?.let { systemProperty("ymcl.meta.preferMirror", it) }
 }
+
+// P3 step-3 self-check: install vanilla 1.20.1 into an isolated directory and launch it.
+tasks.register<JavaExec>("installSelfCheck") {
+    group = "verification"
+    description = "Runs the P3 vanilla install + launch self-check."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.InstallSelfCheckKt")
+    System.getProperty("ymcl.install.dir")?.let { systemProperty("ymcl.install.dir", it) }
+    systemProperty(
+        "ymcl.shot.path",
+        rootProject.layout.buildDirectory.file("p3-vanilla-menu.png").get().asFile.absolutePath,
+    )
+}
