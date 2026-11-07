@@ -48,13 +48,21 @@ P2 已验证：15 个本地版本（首屏 12 行、其余滚动；最终启动�
 
 ## 4. 下一步（按顺序，每条有验收）
 
-1. **P3 下载与安装**：版本清单缓存、BMCLAPI 默认（可关）的下载源抽象、原版安装、
-   加载器安装（Fabric/Forge/NeoForge）。任务书以 `prompts/phase3-install.md`（v1.1）
-   为准，BMCLAPI 默认、可关，不要用旧版记忆。
-   验收：空目录能装出一个可启动实例；关镜像也能装。
+> 版本清单 / 原版安装 / Fabric+Forge 加载器已完成并交接，见 `docs/p3-report.md`、tag `p3-complete`。
+> 以下编号与 `NOTES.md`「Phase 计划」一致。
+
+1. **P4 资源获取**：Modrinth / CurseForge 搜索、版本过滤、依赖补齐、
+   Mod/资源包/光影安装；整合包只下载不导入。
+   验收：装 sodium + iris 能启动；无 CF key 有明确提示。→ `prompts/phase4-resources.md`
 2. **P5 整合包导入**：mrpack 与 CurseForge zip +
    `client-overrides/.launcher/instance.json` 可选配置。
    验收：别人的整合包导入即玩，Prism 也能正常装。
+3. **P6 诊断**：类名→jar 索引、元数据指纹、规则证据链、Mixin 冲突。
+   验收：拿真实 crash-report 给出结论 + 证据 + 一键处置。
+4. **P7 Java 运行时安装**（延后）：Adoptium API + TUNA/华为云镜像安装器，
+   接进 P2 的注册表。验收：装好 JRE 21 并出现在运行时列表里。
+5. **P8 打包分发**：单 exe（自解压）+ AppImage + 签名清单自更新。
+   验收：两个平台各一个单文件，朋友双击即用。
 
 ## 5. 构建/测试/运行
 
@@ -92,6 +100,29 @@ composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
 - **绝对路径**：业务代码/文档不要写死本机路径；`prompts/` 是原始任务书，
   含历史主机路径，**不要改**，也不要把它们当项目配置。
 
+### P3 已知坑（2026-11-07 实测，别「优化」回去）
+
+- **Forge installer 需要 `launcher_profiles.json`**：否则报
+  `There is no Minecraft launcher profile ... you need to run the launcher first!`。
+  装前在目标目录写一个最小 `launcher_profiles.json`（含 `profiles.<name>.lastVersionId`）。
+- **Forge 必须用自包含 profile**：官方 installer 产出的是继承式（`inheritsFrom: 1.20.1` +
+  29 库），HMCL 的 module layer 会把原版 jar 解析两次，撞 JPMS
+  `Module minecraft contains package com.mojang.blaze3d.platform`。正确做法（见
+  `LoaderSelfCheck.installForge`）：合并原版 88 + Forge 29 = 117 库、合并
+  `arguments.game/jvm`、去 `inheritsFrom`、`jar` 指向自身并硬链接原版 jar。
+  **不要把自包含改回继承式**。
+- **全屏 grim 会拍错窗口**：`grim` 默认全屏（3840×2160），同时开着两个 MC 会拍到别的窗口，
+  与历史上 `wmctrl` 类假阳性同源。必须窗口级截图：
+  `grim -g "$(hyprctl activewindow -j | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"')"`，
+  且截图前断言 `activewindow.class` 是游戏窗口。
+- **`${clientid}` / `${auth_xuid}` 宏仍未替换**（P2 遗留）：真实日志可见
+  `--clientId, ${clientid}, --xuid, ${auth_xuid}`。1.20.1 + Forge 不读这两个参数，离线启动
+  无影响；**正版登录 / Realms 前必须处理**。
+- **停滞判据**：30s 无新字节 → `STALL@30s` abort 切候选；总 300s 兜底。慢不等于坏
+  （C 组 official 上 538KB 花 196s 是网络烂，不是文件坏），只杀没进展。
+- **x-bmclapi-hash**：只在 40 位合法 sha1 且本地已存在同 hash 文件时用于「跳过」，
+  绝不替代 manifest/版本 json 的 sha1 校验。
+
 ## 7. 关键文件索引
 
 - 窗口入口：`composeApp/src/desktopMain/kotlin/dev/mayo/ymcl/DesktopMain.kt`
@@ -117,5 +148,7 @@ composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
   `gradle.properties` 的绝对路径问题。
 - `p3-start`：**P3 起手点**（P3/P4 任务书与冷启动文档入库后的提交）。
   从 `hy4-start` 直接开工会缺 `prompts/phase3-install.md`，所以 P3 请从 `p3-start` 开新分支。
+- `p3-complete`：**P3 最终报告完成点**（`docs/p3-report.md` 入库后的提交；E2E 入口已入库，
+  但其 forge 步骤因耗时长被中断，详见 `docs/p3-report.md` §4）。P4 请从 `p3-complete` 开新分支。
 回退：`git switch main && git branch -D p2-engine` 丢弃 P2；
 `git switch -c retry p1-baseline` 从 P1 重开；单步用 `git revert <hash>`。

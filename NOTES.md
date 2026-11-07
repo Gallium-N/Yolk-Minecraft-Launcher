@@ -191,6 +191,23 @@
 P2 虽然不做安装器，但**运行时注册表要先立起来**（探测到的和以后安装的都写进同一张表），
 否则 P7 会变成"启动器装了一个 Java、引擎又去找另一个"。
 
+## P3 实现决策（2026-11-07，已验证，别改回去）
+
+- **停滞 30s / 总 300s 判据**：下载只杀「没进展」，不杀「慢」。每次 `read` 带
+  `get(30s)`，30s 无新字节 → `STALL@30s` abort 切候选；外层 `get(300s)` 兜总时长。
+  理由：C 组 official 上 538KB 花 196s 是出口对 CDN 不友好，不是文件坏；硬性「总耗时 90s」
+  会把慢但稳定的下载误杀。`HttpRequest.timeout` 只管到响应头，body 流式读必须自己带
+  deadline，且两次读任务不能共用 `ForkJoinPool.commonPool`（会饿死内层 read）。
+- **x-bmclapi-hash 只做跳过不做校验**：响应头 `x-bmclapi-hash` 只在 40 位合法 sha1、
+  且与 manifest 期望 sha1 一致、且本地已存在同 hash 文件时用于「跳过下载」。
+  **绝不替代** manifest / 版本 json 里的 sha1 校验。理由：它是 BMCLAPI 侧内容哈希，
+  不是官方校验值。
+- **Forge 必须用自包含 profile**：官方 installer 产出的 `inheritsFrom: 1.20.1` 继承式
+  profile 会让 HMCL 的 module layer 把原版 jar 解析两次，撞 JPMS
+  `Module minecraft contains package com.mojang.blaze3d.platform`（启动崩）。做法：
+  合并原版 88 + Forge 29 = 117 库、合并 `arguments.game/jvm`、去 `inheritsFrom`、
+  `jar` 指向自身并硬链接原版 jar；installer 前还需 `launcher_profiles.json`。
+  这与 P2 用过的 `1.20.1-Forge` 自包含结构一致。
 
 ## 未决问题
 

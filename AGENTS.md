@@ -24,6 +24,13 @@ engine  GameEngine 接口；HMCL 类型只允许在 desktopMain 的 HmclEngine
 - `grep -rn "org.jackhuang" composeApp/src/commonMain` 必须为空。
 - 路径内部统一 `/`，只在文件/进程边界用 `PathUtil.toNative`。
 - 新增持久化文件必须带 `schemaVersion`，并容忍未知字段。
+- **所有网络请求只走 `DownloadSource` 候选列表**：`composeApp/src` 下（含 `desktopTest`
+  测试夹具）**不许出现 `https://` 字面量；校验命令
+  `grep -rn "https://" composeApp/src --include=*.kt | grep -v DownloadSource` 必须为空。
+  URL 一律由 `DownloadSource` 的方法生成；测试夹具用 `http://` 假地址。
+- **下载失败必须进失败清单并让进程非零退出，禁止静默跳过**：sha1/size 不匹配删 `.part`
+  重下一次，再失败报可读错误（文件名 + 期望/实际 hash、size），`INSTALL ERROR` 计入
+  `Summary.failures`，自检 `exitProcess(1)`。不允许「重试到成功」的外层循环掩盖问题。
 
 ## 构建与测试
 
