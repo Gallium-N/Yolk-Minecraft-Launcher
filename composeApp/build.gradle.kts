@@ -85,3 +85,15 @@ tasks.named<Test>("desktopTest") {
         showStandardStreams = false
     }
 }
+
+// P3 step-1 meta self-check. Run with -Dymcl.meta.mode=offline for the offline
+// fallback check; -Dymcl.meta.preferMirror=false switches to the official source.
+tasks.register<JavaExec>("metaSelfCheck") {
+    group = "verification"
+    description = "Runs the P3 meta-layer online/offline self-check."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.MetaSelfCheckKt")
+    System.getProperty("ymcl.meta.mode")?.let { systemProperty("ymcl.meta.mode", it) }
+    System.getProperty("ymcl.meta.preferMirror")?.let { systemProperty("ymcl.meta.preferMirror", it) }
+}
