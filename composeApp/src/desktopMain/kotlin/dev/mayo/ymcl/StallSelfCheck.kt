@@ -82,7 +82,8 @@ private fun startHangingServer(): ServerSocket {
                         "Connection: keep-alive\r\n\r\n"
                     out.write(headers.toByteArray())
                     out.flush()
-                    // Intentionally never send the body and never close.
+                    // Keep the connection open and never send the body.
+                    Thread.sleep(600_000L)
                 } catch (_: Exception) {
                 }
             }
