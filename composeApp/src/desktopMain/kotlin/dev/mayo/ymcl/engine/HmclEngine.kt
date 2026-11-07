@@ -3,6 +3,7 @@ package dev.mayo.ymcl.engine
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import dev.mayo.ymcl.domain.Instance
+import dev.mayo.ymcl.domain.InstanceLayout
 import dev.mayo.ymcl.domain.InstanceStatus
 import dev.mayo.ymcl.domain.JavaRuntime
 import dev.mayo.ymcl.domain.Loader
@@ -102,10 +103,22 @@ class HmclEngine(
     }
 
     override fun launch(request: LaunchRequest): LaunchResult {
-        val base = File(request.gameDir)
+        // gameRoot is the HMCL repository base (versions/ + shared assets/libraries);
+        // the run directory is chosen by the isolation rule. The two are independent.
+        val repositoryRoot = File(request.gameDir)
+        val rootModsNonEmpty = File(repositoryRoot, "mods")
+            .listFiles { f -> f.isFile }?.isNotEmpty() == true
+        val paths = InstanceLayout.resolve(request.isolated, rootModsNonEmpty, request.gameDir, request.instanceId)
+        val runDirectory = File(paths.runDir)
+        runDirectory.mkdirs()
+
+        val launchLine = "YMCL LaunchPaths ${paths.describe()}"
+        println(launchLine)
+        paths.notice?.let { println("YMCL layout notice: $it") }
+
         return try {
-            val (raw, resolved) = loadManifests(base.toPath(), request.instanceId)
-            val version = findMcVersion(request.instanceId, resolved)
+            val (raw, resolved) = loadManifests(repositoryRoot.toPath(), request.instanceId)
+            val version = request.mcVersion ?: findMcVersion(request.instanceId, resolved)
             val required = requiredJavaMajor(version)
             if (request.java.major in 1 until required) {
                 return LaunchResult.Failed(
@@ -126,7 +139,9 @@ class HmclEngine(
 
             val options = LaunchOptions.Builder()
                 .setInstanceId(resolved.id())
-                .setGameDir(base.toPath())
+                // setGameDir only drives -Duser.home / APPDATA; the actual
+                // --gameDir and cwd come from getRunDirectory() below.
+                .setGameDir(repositoryRoot.toPath())
                 .setJava(javaRuntime)
                 .setMaxMemory(request.xmxMb)
                 .setWidth(854)
@@ -144,7 +159,12 @@ class HmclEngine(
                 onBufferOverflow = BufferOverflow.DROP_OLDEST,
             )
             val exits = MutableSharedFlow<Int>(replay = 1, extraBufferCapacity = 1)
-            val gameInstance = HmclGameInstance(base.toPath(), resolved, raw, version)
+            // Surface the resolved layout in the UI log stream too, not just stdout.
+            logs.tryEmit(launchLine)
+            paths.notice?.let { logs.tryEmit("YMCL layout notice: $it") }
+            val gameInstance = HmclGameInstance(
+                repositoryRoot.toPath(), runDirectory.toPath(), resolved, raw, version,
+            )
 
             val finished = AtomicBoolean(false)
             val listener = object : ProcessListener {
@@ -401,12 +421,15 @@ class HmclEngine(
 }
 
 private class HmclGameInstance(
-    private val baseDir: Path,
+    private val repositoryRoot: Path,
+    private val runDirectory: Path,
     private val resolved: GameInstanceManifest,
     private val stored: GameInstanceManifest,
     private val mcVersion: String,
 ) : GameInstance {
-    private val layout = DefaultGameRepositoryLayout(baseDir)
+    // The layout resolves versions/ + assets/ + libraries/ from the shared root;
+    // only the run directory is instance-scoped (or the root in shared mode).
+    private val layout = DefaultGameRepositoryLayout(repositoryRoot)
     private val versionNumber = GameVersionNumber.asGameVersion(mcVersion)
     private val componentAnalyzer by lazy { GameComponentAnalyzer.analyze(resolved, versionNumber) }
 
@@ -436,7 +459,7 @@ private class HmclGameInstance(
         resolved.jar()?.let { layout.getInstanceJarFile(it) }
             ?: layout.getInstanceJarFile(resolved.id())
 
-    override fun getRunDirectory(): Path = baseDir
+    override fun getRunDirectory(): Path = runDirectory
 
     override fun getAssetIndex(assetId: String): AssetIndex =
         JsonUtils.fromJsonFile(layout.getAssetIndexFile(assetId), AssetIndex::class.java)

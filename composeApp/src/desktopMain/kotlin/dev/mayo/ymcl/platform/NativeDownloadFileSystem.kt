@@ -54,6 +54,24 @@ class NativeDownloadFileSystem(private val gameDir: String) : DownloadFileSystem
         Files.move(file(from).toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
 
+    /**
+     * Hard-links a shared file into an instance-owned path (zero extra bytes on
+     * the same device). On cross-device (EXDEV) or unsupported filesystems we
+     * fall back to a plain copy. Existing destinations are left untouched.
+     */
+    override fun linkOrCopy(from: String, to: String) {
+        val src = file(from).toPath()
+        val dst = file(to).toPath()
+        if (Files.exists(dst)) return
+        dst.parent?.let { Files.createDirectories(it) }
+        try {
+            Files.createLink(dst, src)
+        } catch (e: Exception) {
+            Files.deleteIfExists(dst)
+            Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
     override fun unpackNatives(jarBytes: ByteArray, destDir: String) {
         val root = file(destDir)
         root.mkdirs()

@@ -134,11 +134,18 @@ tasks.register<JavaExec>("loaderSelfCheck") {
     System.getProperty("ymcl.shot.path")?.let { systemProperty("ymcl.shot.path", it) }
 }
 
-// P3 step-5 end-to-end: three cold installs (vanilla / Fabric / Forge).
+// P4 step-0 end-to-end: one shared gameRoot, three version-isolated instances.
+// Override the seed / gameRoot with -Dymcl.* if the P3 install lives elsewhere.
 tasks.register<JavaExec>("installE2ESelfCheck") {
     group = "verification"
-    description = "Runs the P3 end-to-end cold-install self-check."
+    description = "Runs the P4 shared-layout end-to-end self-check."
     val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
     classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
     mainClass.set("dev.mayo.ymcl.E2ESelfCheckKt")
+    listOf(
+        "ymcl.game.root", "ymcl.seed.root", "ymcl.seed.fabric",
+        "ymcl.seed.version.json", "ymcl.shot.dir",
+    ).forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
 }

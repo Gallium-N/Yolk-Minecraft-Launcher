@@ -6,6 +6,14 @@ import kotlinx.coroutines.flow.StateFlow
 
 data class CandidateUrl(val url: String, val sourceId: String)
 
+/**
+ * Where a spec's [relativePath] lives. SHARED files are resolved from the game
+ * root (`assets/`, `libraries/`) and are deduplicated across every instance;
+ * INSTANCE files live under `versions/<instanceId>/`. The installer builds the
+ * full relative path, so the downloader's validation logic needs no change.
+ */
+enum class DownloadScope { SHARED, INSTANCE }
+
 data class DownloadSpec(
     val relativePath: String,
     val candidates: List<CandidateUrl>,
@@ -13,6 +21,8 @@ data class DownloadSpec(
     val expectedSize: Long? = null,
     /** When set, the downloaded jar is unpacked into this directory after verification. */
     val unpackNativesTo: String? = null,
+    /** Descriptive target scope (shared root vs instance-private). */
+    val scope: DownloadScope = DownloadScope.SHARED,
 )
 
 /** The whole body is buffered in memory by the transport, then written once. */
@@ -67,6 +77,15 @@ interface DownloadFileSystem {
     fun delete(relativePath: String)
     fun move(from: String, to: String)
     fun unpackNatives(jarBytes: ByteArray, destDir: String)
+
+    /**
+     * Materializes a verified shared file into an instance-owned path. The
+     * platform actual hard-links (with copy fallback on EXDEV); this default is a
+     * plain copy so in-memory fakes stay usable without extra wiring.
+     */
+    fun linkOrCopy(from: String, to: String) {
+        writeNew(to, readAll(from))
+    }
 }
 
 private val SHA1_REGEX = Regex("^[0-9a-fA-F]{40}$")

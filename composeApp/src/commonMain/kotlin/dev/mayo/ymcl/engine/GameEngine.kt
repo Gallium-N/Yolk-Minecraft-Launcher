@@ -4,13 +4,20 @@ import dev.mayo.ymcl.domain.Instance
 import dev.mayo.ymcl.domain.JavaRuntime
 import kotlinx.coroutines.flow.Flow
 
-/** What the UI asks the engine to launch. */
+/**
+ * What the UI asks the engine to launch. [gameDir] is the shared repository
+ * root (`<gameRoot>`), where `assets/`, `libraries/` and `versions/` live.
+ */
 data class LaunchRequest(
     val instanceId: String,
     val gameDir: String,
     val java: JavaRuntime,
     val xmxMb: Int,
     val extraJvmArgs: List<String> = emptyList(),
+    /** When true (default) `--gameDir` is the instance dir; false uses the root. */
+    val isolated: Boolean = true,
+    /** Explicit MC version; when null the engine falls back to id heuristics. */
+    val mcVersion: String? = null,
 )
 
 /**

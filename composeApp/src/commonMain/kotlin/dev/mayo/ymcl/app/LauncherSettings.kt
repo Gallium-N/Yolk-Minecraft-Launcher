@@ -10,6 +10,10 @@ import kotlinx.serialization.json.Json
 data class LauncherSettingsFile(
     val schemaVersion: Int = 1,
     val preferBmclapi: Boolean = true,
+    /** Empty means "use the default `<appRoot>/data/game`". */
+    val gameRoot: String = "",
+    /** Version isolation is the default; missing field falls back to true. */
+    val isolatedInstances: Boolean = true,
 )
 
 /** Persists launcher-wide preferences at `<appRoot>/data/launcher.json` (UTF-8, no BOM). */
@@ -55,6 +59,13 @@ class LauncherSettings(
 
     /** Startup entry point: the persisted switch decides BMCLAPI vs official. */
     fun source(): DownloadSource = defaultDownloadSource(load().preferBmclapi)
+
+    /** Shared repository root; a blank configured value falls back to the default. */
+    fun gameRootPath(): String =
+        load().gameRoot.takeIf { it.isNotBlank() } ?: PathUtil.join(appRoot, "data", "game")
+
+    /** Whether new/opened instances use version isolation (default true). */
+    fun isolationEnabled(): Boolean = load().isolatedInstances
 }
 
 // TODO(settings-ui): 下载分组里加「优先使用国内镜像（BMCLAPI）」开关，写入

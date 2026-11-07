@@ -42,7 +42,18 @@ class LoaderInstaller(
         return path to source.loaderMaven(group, artifact, version, null, "jar")
     }
 
-    fun installFabric(mcVersion: String, manifest: VersionManifest): LoaderInstallResult {
+    /**
+     * [instanceId] is the version directory name (P4). It defaults to null, in
+     * which case the upstream profile id is used (the P3 behaviour).
+     * [parentInstanceId] is the vanilla instance the profile inherits its jar
+     * and libraries from; it defaults to [mcVersion] (also the P3 behaviour).
+     */
+    fun installFabric(
+        mcVersion: String,
+        manifest: VersionManifest,
+        instanceId: String? = null,
+        parentInstanceId: String = mcVersion,
+    ): LoaderInstallResult {
         if (manifest.versions.none { it.id == mcVersion }) {
             throw LoaderInstallException(
                 "MC 版本 $mcVersion 不在版本清单中（清单共 ${manifest.versions.size} 个版本，示例可用：1.20.1）",
@@ -51,7 +62,8 @@ class LoaderInstaller(
 
         val selection = meta.loadFabricProfileWithFallback(mcVersion)
         val loaderVersion = selection.loaderVersion
-        val versionId = selection.profile.id.ifBlank { "fabric-loader-$loaderVersion-$mcVersion" }
+        val versionId = instanceId
+            ?: selection.profile.id.ifBlank { "fabric-loader-$loaderVersion-$mcVersion" }
         val profileText = meta.fabricProfileText(mcVersion, loaderVersion)
         val root = json.parseToJsonElement(profileText).jsonObject
         val libs = root["libraries"]?.jsonArray
@@ -71,14 +83,15 @@ class LoaderInstaller(
         }
         val versionJson = JsonObject(root.toMutableMap().apply {
             put("id", JsonPrimitive(versionId))
-            put("inheritsFrom", JsonPrimitive(mcVersion))
-            // Fabric has no jar of its own; point HMCL at the vanilla 1.20.1 jar.
-            put("jar", JsonPrimitive(mcVersion))
+            put("inheritsFrom", JsonPrimitive(parentInstanceId))
+            // Fabric has no jar of its own; point HMCL at the vanilla jar.
+            put("jar", JsonPrimitive(parentInstanceId))
             put("libraries", JsonArray(rewritten))
         })
         val versionRel = "versions/$versionId/$versionId.json"
         fs.writeNew(versionRel, versionJson.toString().toByteArray(Charsets.UTF_8))
-        log("fabric versionJson: $versionRel (inheritsFrom=$mcVersion, libraries=${libs.size}, mainClass=${selection.profile.mainClass})")
+        log("fabric versionJson: $versionRel (id=$versionId, inheritsFrom=$parentInstanceId, " +
+            "libraries=${libs.size}, mainClass=${selection.profile.mainClass})")
 
         // Already-present library files are counted as skipped (idempotent re-install).
         val specs = mutableListOf<DownloadSpec>()
