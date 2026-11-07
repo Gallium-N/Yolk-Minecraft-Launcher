@@ -22,7 +22,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.system.exitProcess
@@ -62,7 +70,7 @@ fun main() {
             println("FABRIC_OK")
         }
         "forge" -> {
-            val result = installForge(gameDir, source, downloader, fs, ::println)
+            val result = installForge(gameDir, "1.20.1", source, downloader, fs, ::println)
             println("FORGE_RESULT versionId=${result.versionId} elapsedMs=${result.elapsedMs} " +
                 "installer=${result.installerJar}")
             if (!launchAndShoot(appRoot, gameDir, result.versionId, shotPath,
@@ -94,6 +102,7 @@ fun main() {
 
 private fun installForge(
     gameDir: String,
+    mcVersion: String,
     source: dev.mayo.ymcl.app.DownloadSource,
     downloader: GameDownloader,
     fs: dev.mayo.ymcl.app.DownloadFileSystem,
@@ -116,6 +125,13 @@ private fun installForge(
     val helpText = helpProcess.inputStream.bufferedReader().readText()
     helpProcess.waitFor()
     println("FORGE_HELP_BEGIN\n$helpText\nFORGE_HELP_END")
+
+    // Forge installer refuses to run without a vanilla launcher profile.
+    if (!fs.exists("launcher_profiles.json")) {
+        val profiles = """{"profiles":{"ymcl":{"name":"$mcVersion","lastVersionId":"$mcVersion","type":"custom"}}}"""
+        fs.writeNew("launcher_profiles.json", profiles.toByteArray(Charsets.UTF_8))
+        log("forge: 创建 launcher_profiles.json（installer 前置条件）")
+    }
 
     val start = System.currentTimeMillis()
     val process = ProcessBuilder(javaBin, "-jar", jarAbs, "--installClient", PathUtil.toNative(gameDir))
@@ -141,6 +157,37 @@ private fun installForge(
     val versionId = versions.listFiles { f -> f.isDirectory && f.name.contains("forge", ignoreCase = true) }
         ?.minByOrNull { it.name }?.name
         ?: throw LoaderInstallException("Forge installer 未生成版本目录：$versions")
+
+    // The installer emits an inheriting profile (29 Forge libs + inheritsFrom 1.20.1).
+    // HMCL's module layer then resolves the vanilla jar twice (JPMS conflict), so
+    // turn it into a self-contained profile like P2's working Forge install:
+    // vanilla libs + Forge libs, no inheritsFrom, jar points at <versionId>.
+    val versionRel = "versions/$versionId/$versionId.json"
+    val forgeJson = Json.parseToJsonElement(String(fs.readAll(versionRel), Charsets.UTF_8)).jsonObject
+    val vanillaJson = Json.parseToJsonElement(
+        String(fs.readAll("versions/$mcVersion/$mcVersion.json"), Charsets.UTF_8),
+    ).jsonObject
+    val mergedLibs = (vanillaJson["libraries"]!!.jsonArray + forgeJson["libraries"]!!.jsonArray)
+        .distinctBy { it.jsonObject["name"]?.jsonPrimitive?.content.orEmpty() }
+    val vanillaArgs = vanillaJson["arguments"]?.jsonObject
+    val forgeArgs = forgeJson["arguments"]?.jsonObject
+    fun mergeArgs(key: String): JsonArray = JsonArray(
+        (vanillaArgs?.get(key)?.jsonArray ?: emptyList()) + (forgeArgs?.get(key)?.jsonArray ?: emptyList()),
+    )
+    val patched = JsonObject(forgeJson.toMutableMap().apply {
+        remove("inheritsFrom")
+        put("jar", JsonPrimitive(versionId))
+        put("libraries", JsonArray(mergedLibs))
+        put("arguments", JsonObject(mapOf("game" to mergeArgs("game"), "jvm" to mergeArgs("jvm"))))
+        listOf("assetIndex", "assets", "javaVersion", "minimumLauncherVersion", "complianceLevel", "downloads")
+            .forEach { key -> vanillaJson[key]?.let { put(key, it) } }
+    })
+    fs.writeNew(versionRel, patched.toString().toByteArray(Charsets.UTF_8))
+
+    val srcJar = File(PathUtil.toNative(PathUtil.join(gameDir, "versions/$mcVersion/$mcVersion.jar"))).toPath()
+    val dstJar = File(PathUtil.toNative(PathUtil.join(gameDir, "versions/$versionId/$versionId.jar"))).toPath()
+    if (!Files.exists(dstJar)) Files.createLink(dstJar, srcJar)
+    log("forge: 自包含 profile libraries=${mergedLibs.size} jar=$versionId（硬链接原版 jar）")
     return ForgeResult(versionId, jarAbs, elapsed, helpText)
 }
 
@@ -165,6 +212,7 @@ private fun launchAndShoot(
         }
         is LaunchResult.Started -> {
             val marker = AtomicBoolean(false)
+            val crashed = AtomicBoolean(false)
             val scope = CoroutineScope(Dispatchers.IO)
             scope.launch {
                 result.handle.logs.collect { line ->
@@ -172,18 +220,28 @@ private fun launchAndShoot(
                     if (markers.any { line.contains(it) }) marker.set(true)
                 }
             }
+            scope.launch {
+                result.handle.exitCode.collect { code -> crashed.set(code != 0) }
+            }
             val deadline = System.currentTimeMillis() + 60_000
-            while (!marker.get() && System.currentTimeMillis() < deadline) Thread.sleep(500)
-            println("launch marker found=${marker.get()} markers=$markers")
-            Thread.sleep(6000)
+            while (!marker.get() && !crashed.get() && System.currentTimeMillis() < deadline) Thread.sleep(500)
+            println("launch marker found=${marker.get()} markers=$markers crashed=${crashed.get()}")
+            if (crashed.get()) {
+                println("LAUNCH CRASHED: 游戏进程异常退出，截图无效")
+                engine.stop(versionId)
+                scope.cancel()
+                false
+            } else {
+                Thread.sleep(12_000) // Forge needs longer to reach the main menu
 
-            val shot = File(shotPath)
-            shot.parentFile?.mkdirs()
-            val grim = ProcessBuilder("grim", shot.absolutePath).inheritIO().start().waitFor()
-            println("grim exit=$grim screenshot=${shot.absolutePath}")
-            engine.stop(versionId)
-            scope.cancel()
-            grim == 0 && shot.length() > 0
+                val shot = File(shotPath)
+                shot.parentFile?.mkdirs()
+                val grim = ProcessBuilder("grim", shot.absolutePath).inheritIO().start().waitFor()
+                println("grim exit=$grim screenshot=${shot.absolutePath}")
+                engine.stop(versionId)
+                scope.cancel()
+                grim == 0 && shot.length() > 0
+            }
         }
     }
 }

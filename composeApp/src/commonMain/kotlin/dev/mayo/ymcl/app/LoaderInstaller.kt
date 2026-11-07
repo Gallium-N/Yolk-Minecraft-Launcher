@@ -72,6 +72,8 @@ class LoaderInstaller(
         val versionJson = JsonObject(root.toMutableMap().apply {
             put("id", JsonPrimitive(versionId))
             put("inheritsFrom", JsonPrimitive(mcVersion))
+            // Fabric has no jar of its own; point HMCL at the vanilla 1.20.1 jar.
+            put("jar", JsonPrimitive(mcVersion))
             put("libraries", JsonArray(rewritten))
         })
         val versionRel = "versions/$versionId/$versionId.json"
