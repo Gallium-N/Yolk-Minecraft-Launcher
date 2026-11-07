@@ -129,6 +129,11 @@ class MetaRepository(
         }
     }
 
+    /** Raw cached profile json, used by the loader installer to keep every field. */
+    fun fabricProfileText(mcVersion: String, loaderVersion: String): String =
+        store.read(fabricPath(mcVersion, loaderVersion))
+            ?: throw MetaUnavailableException("Fabric profile 缓存不存在：$mcVersion/$loaderVersion")
+
     /** Caches the finished profile json verbatim at data/meta/fabric/<mc>-<loader>.json (TTL 24h). */
     fun loadFabricProfile(mcVersion: String, loaderVersion: String): MetaResult<FabricProfile> {
         val path = fabricPath(mcVersion, loaderVersion)

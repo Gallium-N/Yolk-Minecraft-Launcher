@@ -122,3 +122,14 @@ tasks.register<JavaExec>("stallSelfCheck") {
     mainClass.set("dev.mayo.ymcl.StallSelfCheckKt")
     System.getProperty("ymcl.a3")?.let { systemProperty("ymcl.a3", it) }
 }
+
+// P3 step-4 loader self-check. -Dymcl.loader.mode=fabric|forge|idempotent|error.
+tasks.register<JavaExec>("loaderSelfCheck") {
+    group = "verification"
+    description = "Runs the P3 step-4 loader install + launch self-check."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.LoaderSelfCheckKt")
+    System.getProperty("ymcl.loader.mode")?.let { systemProperty("ymcl.loader.mode", it) }
+    System.getProperty("ymcl.shot.path")?.let { systemProperty("ymcl.shot.path", it) }
+}

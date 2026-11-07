@@ -38,4 +38,8 @@ data class FabricProfile(
 data class FabricLibrary(
     val name: String = "",
     val url: String? = null,
+    val sha1: String? = null,
+    val size: Long? = null,
+    val md5: String? = null,
+    val sha256: String? = null,
 )
