@@ -1,5 +1,7 @@
 package dev.mayo.ymcl
 
+import dev.mayo.ymcl.app.DownloadStallException
+import dev.mayo.ymcl.app.DownloadTransport
 import dev.mayo.ymcl.app.GameDownloader
 import dev.mayo.ymcl.app.GameInstaller
 import dev.mayo.ymcl.app.LauncherSettings
@@ -59,7 +61,27 @@ fun main() {
         ?: run { System.err.println("COLD_ABORT: $MC_VERSION 不在清单"); exitProcess(1) }
 
     val fs = NativeDownloadFileSystem(gameRoot)
-    val downloader = GameDownloader(HttpDownloadTransport(), fs, ::println)
+    // QA fault injection: -Dymcl.cold.injectstalls=N reproduces the earlier
+    // rotating-CDN failure pattern deterministically (each BMCLAPI 302 landing
+    // on a DIFFERENT stalled host). It is NOT a real 30s wait — it throws the
+    // same DownloadStallException immediately — so the source-level breaker can
+    // be shown to demote and to stop the stall chain, without CDN luck.
+    val injectStalls = System.getProperty("ymcl.cold.injectstalls")?.toIntOrNull() ?: 0
+    val transport: DownloadTransport = if (injectStalls > 0) {
+        val delegate = HttpDownloadTransport()
+        var injected = 0
+        DownloadTransport { url, rangeStart ->
+            if (url.contains("bmclapi") && injected < injectStalls) {
+                injected++
+                throw DownloadStallException("cdn-$injected.sakura.example", 30_000L)
+            }
+            delegate.get(url, rangeStart)
+        }
+    } else {
+        HttpDownloadTransport()
+    }
+    if (injectStalls > 0) println("COLD fault injection: up to $injectStalls rotating-CDN stalls")
+    val downloader = GameDownloader(transport, fs, ::println)
     val summary = try {
         GameInstaller(source, downloader, fs, ::println).install(MC_VERSION, entry, instanceId)
     } catch (e: Exception) {

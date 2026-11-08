@@ -148,7 +148,10 @@ tasks.register<JavaExec>("coldPathSelfCheck") {
     val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
     classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
     mainClass.set("dev.mayo.ymcl.ColdPathSelfCheckKt")
-    listOf("ymcl.cold.root", "ymcl.cold.instance", "ymcl.cold.shot", "ymcl.cold.official").forEach { key ->
+    listOf(
+        "ymcl.cold.root", "ymcl.cold.instance", "ymcl.cold.shot",
+        "ymcl.cold.official", "ymcl.cold.injectstalls",
+    ).forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
 }
