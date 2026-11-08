@@ -3,7 +3,6 @@ package dev.mayo.ymcl.app
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import dev.mayo.ymcl.domain.Instance
 import dev.mayo.ymcl.domain.InstanceStatus
 import dev.mayo.ymcl.domain.JavaRuntime
 import dev.mayo.ymcl.engine.FakeGameEngine
@@ -60,21 +59,31 @@ enum class InstanceSort(val label: String) {
 }
 
 /**
- * ViewModel-ish state holder. The desktop entry point injects HmclEngine; tests
- * and previews keep the fake default. UI/common code never imports HMCL types.
+ * ViewModel-ish state holder. The desktop entry point injects the HMCL-backed
+ * engine, an [InstanceRepository] wired to the real game root, and the persisted
+ * isolation setting. UI/common code never imports HMCL types or touches the FS.
  */
 class AppState(
     private val engine: GameEngine = FakeGameEngine(),
+    private val repositoryFactory: (String) -> InstanceRepository = { EmptyInstanceRepository() },
+    gameRoot: String = defaultGameDirectory(),
+    private val isolationEnabled: Boolean = true,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var repository: InstanceRepository = repositoryFactory(gameRoot)
+    private val lastLaunchTimes = mutableMapOf<String, Long>()
 
     var page by mutableStateOf(AppPage.HOME)
         private set
 
-    var gameDirectory by mutableStateOf(defaultGameDirectory())
+    var gameDirectory by mutableStateOf(gameRoot)
         private set
 
-    var instances by mutableStateOf(engine.listInstances(gameDirectory))
+    var instances by mutableStateOf<List<InstanceSummary>>(emptyList())
+        private set
+
+    /** Version dirs that failed to parse in the last refresh (shown as 读取失败). */
+    var instanceReadFailures by mutableStateOf(0)
         private set
 
     var javaRuntimes by mutableStateOf(
@@ -91,7 +100,7 @@ class AppState(
 
     var xmxMb by mutableStateOf(4096)
 
-    var selectedInstanceId by mutableStateOf(instances.firstOrNull()?.id)
+    var selectedInstanceId by mutableStateOf<String?>(null)
         private set
 
     var searchQuery by mutableStateOf("")
@@ -128,16 +137,29 @@ class AppState(
     val selectedJava: JavaRuntime?
         get() = javaRuntimes.firstOrNull { it.path == selectedJavaPath }
 
-    val mainInstance: Instance?
-        get() = instances.firstOrNull { it.id == selectedInstanceId } ?: instances.firstOrNull()
+    /** Hero card: the most recently launched instance, else the first one. */
+    val mainInstance: InstanceSummary?
+        get() {
+            if (instances.isEmpty()) return null
+            val mostRecent = instances.maxByOrNull { lastLaunchTimes[it.id] ?: Long.MIN_VALUE }
+            return if (mostRecent != null && lastLaunchTimes.containsKey(mostRecent.id)) {
+                mostRecent
+            } else {
+                instances.first()
+            }
+        }
 
     val updateCount: Int get() = instances.count { it.updateAvailable }
 
-    val recentInstances: List<Instance>
+    val recentInstances: List<InstanceSummary>
         get() = instances
             .filter { it.id != mainInstance?.id }
-            .sortedByDescending { it.lastLaunchedAt ?: Long.MIN_VALUE }
-            .take(2)
+            .sortedByDescending { lastLaunchTimes[it.id] ?: Long.MIN_VALUE }
+            .take(4)
+
+    init {
+        refresh()
+    }
 
     fun navigate(target: AppPage) {
         page = target
@@ -155,8 +177,24 @@ class AppState(
         val trimmed = path.trim()
         if (trimmed.isEmpty() || trimmed == gameDirectory) return
         gameDirectory = trimmed
+        repository = repositoryFactory(trimmed)
         selectedInstanceId = null
         refresh()
+    }
+
+    /** Called by the refresh button and on window re-focus. */
+    fun refresh() {
+        val scan = repository.scan()
+        instanceReadFailures = scan.failed
+        instances = scan.instances.map { summary ->
+            summary.copy(
+                status = if (summary.id == activeInstanceId) InstanceStatus.RUNNING else InstanceStatus.READY,
+                lastLaunchedAt = lastLaunchTimes[summary.id],
+            )
+        }
+        if (instances.none { it.id == selectedInstanceId }) {
+            selectedInstanceId = instances.firstOrNull()?.id
+        }
     }
 
     fun launch(id: String? = null) {
@@ -173,6 +211,7 @@ class AppState(
         launchLogs = emptyList()
         logFilePath = null
         launchPending = true
+        println("[UI ${nowMillis()}] launch $target -> pending (isolated=$isolationEnabled)")
 
         scope.launch {
             val result = runCatching {
@@ -182,6 +221,7 @@ class AppState(
                         gameDir = gameDirectory,
                         java = java,
                         xmxMb = xmxMb,
+                        isolated = isolationEnabled,
                     ),
                 )
             }.getOrElse { LaunchResult.Failed(it.message ?: it.javaClass.simpleName) }
@@ -191,12 +231,16 @@ class AppState(
                 is LaunchResult.Failed -> {
                     activeInstanceId = null
                     launchError = result.message
+                    println("[UI ${nowMillis()}] launch $target -> FAILED: ${result.message}")
+                    refresh()
                 }
 
                 is LaunchResult.Started -> {
                     val handle = result.handle
                     activeInstanceId = target
+                    lastLaunchTimes[target] = nowMillis()
                     logFilePath = handle.logFile
+                    println("[UI ${nowMillis()}] launch $target -> 运行中 pid=${handle.pid} log=${handle.logFile}")
                     refresh()
 
                     scope.launch {
@@ -207,6 +251,7 @@ class AppState(
                     scope.launch {
                         val code = engine.awaitExit(target)
                         activeInstanceId = null
+                        println("[UI ${nowMillis()}] launch $target -> 就绪 (exit=$code)")
                         refresh()
                         if (code != 0) {
                             launchError = classifyFailure(code, launchLogs, java, handle.logFile)
@@ -225,7 +270,13 @@ class AppState(
         }
     }
 
-    fun filteredInstances(): List<Instance> {
+    /** 打开文件夹 action — routed through AppState so the UI never does IO. */
+    fun openInstanceFolder(id: String) {
+        val path = instances.firstOrNull { it.id == id }?.path ?: return
+        dev.mayo.ymcl.platform.openFolder(path)
+    }
+
+    fun filteredInstances(): List<InstanceSummary> {
         val query = searchQuery.trim()
         val matched = if (query.isEmpty()) {
             instances
@@ -233,8 +284,7 @@ class AppState(
             instances.filter { instance ->
                 instance.displayName.contains(query, ignoreCase = true) ||
                     instance.mcVersion.contains(query, ignoreCase = true) ||
-                    instance.loader.display.contains(query, ignoreCase = true) ||
-                    instance.mods.any { it.fileName.contains(query, ignoreCase = true) }
+                    instance.loaderLine.contains(query, ignoreCase = true)
             }
         }
         return when (sort) {
@@ -245,22 +295,6 @@ class AppState(
     }
 
     fun runningCount(): Int = instances.count { it.status == InstanceStatus.RUNNING }
-
-    private fun refresh() {
-        instances = engine.listInstances(gameDirectory).map { instance ->
-            if (instance.id == activeInstanceId) {
-                instance.copy(
-                    status = InstanceStatus.RUNNING,
-                    lastLaunchedAt = instance.lastLaunchedAt ?: nowMillis(),
-                )
-            } else {
-                instance
-            }
-        }
-        if (instances.none { it.id == selectedInstanceId }) {
-            selectedInstanceId = instances.firstOrNull()?.id
-        }
-    }
 
     private fun classifyFailure(code: Int, logs: List<String>, java: JavaRuntime, logFile: String): String {
         val tail = logs.takeLast(60).joinToString("\n")

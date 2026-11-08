@@ -24,11 +24,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -45,14 +45,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.mayo.ymcl.app.AppPage
 import dev.mayo.ymcl.app.AppState
 import dev.mayo.ymcl.app.InstanceSort
-import dev.mayo.ymcl.domain.Instance
+import dev.mayo.ymcl.app.InstanceSummary
 import dev.mayo.ymcl.platform.formatLastLaunch
 import dev.mayo.ymcl.platform.nowMillis
 import dev.mayo.ymcl.ui.components.CircleButton
@@ -60,12 +63,14 @@ import dev.mayo.ymcl.ui.components.OutlinedPillButton
 import dev.mayo.ymcl.ui.components.PageHeader
 import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.StatusChip
+import dev.mayo.ymcl.ui.icons.YmclIcons
 
 @Composable
 fun InstancesPage(state: AppState) {
     val colors = MaterialTheme.colorScheme
     val now = nowMillis()
     val instances = state.filteredInstances()
+    val clipboard = LocalClipboardManager.current
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val contentWidth = maxWidth
@@ -92,51 +97,66 @@ fun InstancesPage(state: AppState) {
                 )
                 Spacer(Modifier.weight(1f))
                 SortMenu(state = state)
-                Spacer(Modifier.width(16.dp))
-                PrimaryButton(
-                    text = "新建实例",
-                    width = 148.dp,
-                    leadingIcon = Icons.Filled.Add,
-                    onClick = { },
-                )
+                Spacer(Modifier.width(12.dp))
+                OutlinedPillButton(text = "刷新", width = 96.dp, onClick = { state.refresh() })
             }
 
             Spacer(Modifier.height(16.dp))
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(tableHeight)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(colors.surfaceContainerLow),
-            ) {
-                TableHeader(columns)
-                if (instances.isEmpty()) {
-                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "没有匹配的实例",
-                            fontSize = 13.sp,
-                            color = colors.onSurfaceVariant,
-                        )
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                    ) {
-                        instances.forEach { instance ->
-                            InstanceRow(
-                                instance = instance,
-                                now = now,
-                                columns = columns,
-                                selected = instance.id == state.selectedInstanceId,
-                                running = state.activeInstanceId == instance.id,
-                                onSelect = { state.selectInstance(instance.id) },
-                                onLaunch = { state.launch(instance.id) },
-                                onStop = { state.stop(instance.id) },
+            state.launchError?.let { error ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.errorContainer)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Text(error, fontSize = 12.sp, lineHeight = 18.sp, color = colors.onErrorContainer)
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            if (state.instances.isEmpty()) {
+                EmptyInstances(onGetContent = { state.navigate(AppPage.HOME) })
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(tableHeight)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(colors.surfaceContainerLow),
+                ) {
+                    TableHeader(columns)
+                    if (instances.isEmpty()) {
+                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "没有匹配的实例",
+                                fontSize = 13.sp,
+                                color = colors.onSurfaceVariant,
                             )
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            instances.forEach { instance ->
+                                InstanceRow(
+                                    instance = instance,
+                                    now = now,
+                                    columns = columns,
+                                    selected = instance.id == state.selectedInstanceId,
+                                    running = state.activeInstanceId == instance.id,
+                                    launching = state.launchPending,
+                                    onSelect = { state.selectInstance(instance.id) },
+                                    onLaunch = { state.launch(instance.id) },
+                                    onStop = { state.stop(instance.id) },
+                                    onOpenFolder = { state.openInstanceFolder(instance.id) },
+                                    onCopyPath = { clipboard.setText(AnnotatedString(instance.path)) },
+                                )
+                            }
                         }
                     }
                 }
@@ -144,11 +164,49 @@ fun InstancesPage(state: AppState) {
 
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "共 ${state.instances.size} 个实例 · ${state.updateCount} 个可更新",
+                text = "共 ${state.instances.size} 个实例 · ${state.updateCount} 个可更新" +
+                    if (state.instanceReadFailures > 0) " · ${state.instanceReadFailures} 个实例读取失败" else "",
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
+                color = if (state.instanceReadFailures > 0) colors.error else colors.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyInstances(onGetContent: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(320.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(colors.surfaceContainerLow),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                YmclIcons.Folder,
+                contentDescription = null,
+                tint = colors.onSurfaceVariant,
+                modifier = Modifier.size(48.dp),
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "还没有实例",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "在「获取内容」里安装一个游戏版本，实例会出现在这里。",
+                fontSize = 13.sp,
                 color = colors.onSurfaceVariant,
             )
+            Spacer(Modifier.height(20.dp))
+            PrimaryButton(text = "获取内容", width = 148.dp, onClick = onGetContent)
         }
     }
 }
@@ -282,14 +340,17 @@ private fun androidx.compose.foundation.layout.BoxScope.HeaderCell(text: String,
 
 @Composable
 private fun InstanceRow(
-    instance: Instance,
+    instance: InstanceSummary,
     now: Long,
     columns: TableColumns,
     selected: Boolean,
     running: Boolean,
+    launching: Boolean,
     onSelect: () -> Unit,
     onLaunch: () -> Unit,
     onStop: () -> Unit,
+    onOpenFolder: () -> Unit,
+    onCopyPath: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
@@ -362,7 +423,7 @@ private fun InstanceRow(
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = instance.loader.display,
+                text = instance.loaderLine,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
                 color = colors.onSurfaceVariant,
@@ -407,28 +468,23 @@ private fun InstanceRow(
                 contentColor = colors.onPrimary,
                 onClick = { if (running) onStop() else onLaunch() },
             ) {
-                Icon(
-                    if (running) Icons.Filled.Close else Icons.Filled.PlayArrow,
-                    contentDescription = if (running) "停止" else "启动",
-                    tint = colors.onPrimary,
-                    modifier = Modifier.size(18.dp),
-                )
+                if (launching && !running) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = colors.onPrimary,
+                    )
+                } else {
+                    Icon(
+                        if (running) Icons.Filled.Close else Icons.Filled.PlayArrow,
+                        contentDescription = if (running) "停止" else "启动",
+                        tint = colors.onPrimary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
             Spacer(Modifier.width(12.dp))
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .clickable { },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Filled.MoreVert,
-                    contentDescription = "更多",
-                    tint = colors.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            MoreMenu(onOpenFolder = onOpenFolder, onCopyPath = onCopyPath)
         }
 
         Box(
@@ -439,5 +495,37 @@ private fun InstanceRow(
                 .height(1.dp)
                 .background(colors.outlineVariant.copy(alpha = 0.30f)),
         )
+    }
+}
+
+/** 三点菜单：只放「打开文件夹」「复制路径」，不做删除。 */
+@Composable
+private fun MoreMenu(onOpenFolder: () -> Unit, onCopyPath: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .clickable { expanded = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.MoreVert,
+                contentDescription = "更多",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("打开文件夹", fontSize = 13.sp) },
+                onClick = { expanded = false; onOpenFolder() },
+            )
+            DropdownMenuItem(
+                text = { Text("复制路径", fontSize = 13.sp) },
+                onClick = { expanded = false; onCopyPath() },
+            )
+        }
     }
 }

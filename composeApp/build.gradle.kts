@@ -59,7 +59,13 @@ compose.desktop {
 // Forward -Dymcl.theme=dark|light to the application JVM (the Gradle JVM would otherwise
 // swallow it). Used to verify both schemes without changing the machine's desktop theme.
 tasks.withType<JavaExec>().configureEach {
-    System.getProperty("ymcl.theme")?.let { systemProperty("ymcl.theme", it) }
+    // QA/system properties for the real UI run (`./gradlew run -Dymcl.game.root=...`).
+    listOf(
+        "ymcl.theme", "ymcl.game.root", "ymcl.window.width", "ymcl.window.height",
+        "ymcl.qa.autolaunch",
+    ).forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
 
     // Skiko extracts its native library under $HOME/.skiko by default. In
     // read-only/sandboxed environments fall back to a build-local data dir.

@@ -39,14 +39,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.mayo.ymcl.app.AppPage
 import dev.mayo.ymcl.app.AppState
+import dev.mayo.ymcl.app.InstanceSummary
 import dev.mayo.ymcl.app.formatPlayTime
-import dev.mayo.ymcl.domain.Instance
 import dev.mayo.ymcl.platform.formatLastLaunch
 import dev.mayo.ymcl.platform.nowMillis
 import dev.mayo.ymcl.ui.components.CircleButton
 import dev.mayo.ymcl.ui.components.IconCircle
 import dev.mayo.ymcl.ui.components.MorphSurface
 import dev.mayo.ymcl.ui.components.PageHeader
+import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.SectionHeader
 import dev.mayo.ymcl.ui.components.StatusChip
 import dev.mayo.ymcl.ui.icons.YmclIcons
@@ -69,12 +70,16 @@ fun HomePage(state: AppState) {
                 title = "启动台",
                 meta = "${state.instances.size} 个实例 · ${state.updateCount} 个可更新",
             )
-            HeroCard(
-                state = state,
-                now = now,
-                heroHeight = heroHeight,
-                statSpacing = statSpacing,
-            )
+            if (state.instances.isEmpty()) {
+                HomeEmptyState(heroHeight = heroHeight)
+            } else {
+                HeroCard(
+                    state = state,
+                    now = now,
+                    heroHeight = heroHeight,
+                    statSpacing = statSpacing,
+                )
+            }
             state.launchError?.let { error ->
                 Spacer(Modifier.height(16.dp))
                 LaunchErrorCard(error)
@@ -142,7 +147,7 @@ private fun HeroCard(
             Spacer(Modifier.height(16.dp))
             Row {
                 HeroStat("游戏版本", instance.mcVersion, statSpacing)
-                HeroStat("模组加载器", instance.loader.display, statSpacing)
+                HeroStat("模组加载器", instance.loaderLine, statSpacing)
                 HeroStat("总游玩", formatPlayTime(instance.totalPlayTimeMs), statSpacing)
                 HeroStat("上次启动", formatLastLaunch(instance.lastLaunchedAt, now), statSpacing)
             }
@@ -184,6 +189,42 @@ private fun HeroCard(
                     modifier = Modifier.size(32.dp),
                 )
             }
+        }
+    }
+}
+
+/** 空 gameRoot：显示「还没有实例」，不崩、不白屏。 */
+@Composable
+private fun HomeEmptyState(heroHeight: Dp) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(heroHeight)
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(colors.primaryContainer, colors.tertiaryContainer),
+                ),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "还没有实例",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.onPrimaryContainer,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "在「获取内容」里安装一个游戏版本，开始你的第一个世界。",
+                fontSize = 13.sp,
+                color = colors.onPrimaryContainer.copy(alpha = 0.78f),
+            )
+            Spacer(Modifier.height(20.dp))
+            // 占位：P4-step2 接「获取内容」页面；此处先不做导航。
+            PrimaryButton(text = "获取内容", width = 148.dp, onClick = { })
         }
     }
 }
@@ -261,7 +302,7 @@ private fun RecentInstancesColumn(
 }
 
 @Composable
-private fun RecentInstanceCard(instance: Instance, now: Long, onClick: () -> Unit) {
+private fun RecentInstanceCard(instance: InstanceSummary, now: Long, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     MorphSurface(
         modifier = Modifier

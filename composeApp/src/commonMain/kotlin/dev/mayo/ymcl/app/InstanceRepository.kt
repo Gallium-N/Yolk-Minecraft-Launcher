@@ -20,3 +20,8 @@ interface InstanceRepository {
     /** Convenience: just the successfully parsed instances. */
     fun list(): List<InstanceSummary> = scan().instances
 }
+
+/** Default for previews/tests with no real game root: an empty list. */
+class EmptyInstanceRepository : InstanceRepository {
+    override fun scan(): InstanceScan = InstanceScan(emptyList(), 0, emptyList())
+}
