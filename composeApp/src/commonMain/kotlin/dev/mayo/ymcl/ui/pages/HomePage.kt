@@ -84,19 +84,23 @@ fun HomePage(state: AppState) {
                 Spacer(Modifier.height(16.dp))
                 LaunchErrorCard(error)
             }
-            Spacer(Modifier.height(if (compact) 16.dp else 24.dp))
-            Row(Modifier.fillMaxWidth()) {
-                RecentInstancesColumn(
-                    state = state,
-                    now = now,
-                    compact = compact,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(24.dp))
-                GetContentColumn(
-                    modifier = Modifier.width(rightWidth),
-                    compact = compact,
-                )
+            // 0 实例时「最近实例」分组只剩一条空的「所有实例」bar，左右都空白，
+            // 观感像渲染丢失；此时整组连同标题一起隐藏，只留 Hero 的引导文案。
+            if (state.instances.isNotEmpty()) {
+                Spacer(Modifier.height(if (compact) 16.dp else 24.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    RecentInstancesColumn(
+                        state = state,
+                        now = now,
+                        compact = compact,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(24.dp))
+                    GetContentColumn(
+                        modifier = Modifier.width(rightWidth),
+                        compact = compact,
+                    )
+                }
             }
         }
     }
