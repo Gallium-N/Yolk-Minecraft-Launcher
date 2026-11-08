@@ -61,11 +61,13 @@ fun StatusChip(status: InstanceStatus, width: Dp = 96.dp, modifier: Modifier = M
     val background = when (status) {
         InstanceStatus.RUNNING -> colors.primaryContainer
         InstanceStatus.READY -> colors.secondaryContainer
+        InstanceStatus.READ_FAILED -> colors.errorContainer
         InstanceStatus.UPDATE_AVAILABLE -> colors.tertiaryContainer
     }
     val foreground = when (status) {
         InstanceStatus.RUNNING -> colors.onPrimaryContainer
         InstanceStatus.READY -> colors.onSecondaryContainer
+        InstanceStatus.READ_FAILED -> colors.onErrorContainer
         InstanceStatus.UPDATE_AVAILABLE -> colors.onTertiaryContainer
     }
     Box(

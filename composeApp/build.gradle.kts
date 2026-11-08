@@ -134,6 +134,19 @@ tasks.register<JavaExec>("loaderSelfCheck") {
     System.getProperty("ymcl.shot.path")?.let { systemProperty("ymcl.shot.path", it) }
 }
 
+// P4 step-0 cold-path gap: fresh root with only assets pre-warmed, real
+// network downloads for libraries + client jar. -Dymcl.cold.root to override.
+tasks.register<JavaExec>("coldPathSelfCheck") {
+    group = "verification"
+    description = "Runs the P4 cold-path (assets pre-warmed only) install + launch."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.ColdPathSelfCheckKt")
+    listOf("ymcl.cold.root", "ymcl.cold.instance", "ymcl.cold.shot", "ymcl.cold.official").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+}
+
 // P4 step-0 end-to-end: one shared gameRoot, three version-isolated instances.
 // Override the seed / gameRoot with -Dymcl.* if the P3 install lives elsewhere.
 tasks.register<JavaExec>("installE2ESelfCheck") {
