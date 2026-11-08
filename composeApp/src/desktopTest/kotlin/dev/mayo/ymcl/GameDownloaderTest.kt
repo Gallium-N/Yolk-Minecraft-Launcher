@@ -181,6 +181,53 @@ class GameDownloaderTest {
     }
 
     @Test
+    fun `three stalls on distinct CDN hosts demote the whole source`() {
+        val logs = mutableListOf<String>()
+        val good = "payload".toByteArray()
+        var stallHost = 0
+        val transport = FakeTransport { url, _ ->
+            if (url.contains("slow")) {
+                stallHost++
+                throw DownloadStallException("cdn-$stallHost.sakura.example", 30_000L)
+            }
+            payload(url, good)
+        }
+        val fs = FakeFs()
+        val downloader = GameDownloader(transport, fs) { logs += it }
+        // 3 files whose only candidate is bmclapi; each 302s to a distinct CDN
+        // host and stalls. Single-candidate specs keep the successful-source
+        // ranking from reordering between files (as it does with 8 real threads).
+        repeat(3) { i ->
+            try {
+                downloader.download(
+                    DownloadSpec(
+                        "f$i.bin",
+                        listOf(CandidateUrl("http://slow.example/f", "bmclapi")),
+                        expectedSha1 = sha1(good),
+                    ),
+                )
+            } catch (_: DownloadFailedException) {
+            }
+        }
+        assertTrue(
+            logs.any { it == "source=bmclapi demoted after 3 failures (hosts=3 distinct)" },
+        )
+        // After demotion the healthy source is tried first for the next file.
+        val before = transport.calls.size
+        downloader.download(
+            DownloadSpec(
+                "f4.bin",
+                listOf(
+                    CandidateUrl("http://slow.example/f", "bmclapi"),
+                    CandidateUrl("http://fast.example/f", "official"),
+                ),
+                expectedSha1 = sha1(good),
+            ),
+        )
+        assertEquals("http://fast.example/f", transport.calls[before].first)
+    }
+
+    @Test
     fun `failed file appears in failure list with its name`() {
         val transport = FakeTransport { _, _ -> throw RuntimeException("down") }
         val fs = FakeFs()

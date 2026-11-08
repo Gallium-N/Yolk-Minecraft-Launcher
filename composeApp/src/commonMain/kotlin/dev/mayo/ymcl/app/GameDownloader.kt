@@ -157,7 +157,9 @@ class GameDownloader(
         index: Int,
     ) {
         log("$target <- $host$label")
-        health.recordFailure(host)
+        // A 302 may land on a fresh CDN host every file; also charge the failure
+        // to the candidate's source so source-level degradation can accumulate.
+        health.recordFailure(host, ordered.getOrNull(index)?.sourceId)
         errors += reason
         fs.delete(part)
         logSwitch(target, ordered, index)
@@ -228,7 +230,7 @@ class GameDownloader(
                     fs.delete(part)
                     val bytes = fs.size(target)
                     val elapsed = System.currentTimeMillis() - start
-                    health.recordSuccess(host)
+                    health.recordSuccess(host, candidate.sourceId)
                     bump(bytes, target)
                     log("$target <- ${candidate.sourceId} ${elapsed}ms ${bytes}B (bmclapi-hash skip)")
                     return DownloadOutcome(target, candidate.sourceId, elapsed, bytes, true, redownloaded, payload.finalUrl)
@@ -259,7 +261,7 @@ class GameDownloader(
                     fs.unpackNatives(fs.readAll(target), spec.unpackNativesTo)
                 }
                 val elapsed = System.currentTimeMillis() - start
-                health.recordSuccess(host)
+                health.recordSuccess(host, candidate.sourceId)
                 health.observe(host, hostOf(payload.finalUrl))
                 log("$target <- ${candidate.sourceId} ${elapsed}ms ${actualSize}B")
                 if (payload.finalUrl != candidate.url) {
