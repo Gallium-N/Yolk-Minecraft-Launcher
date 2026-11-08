@@ -110,7 +110,9 @@ fun main() = application {
             withTimeoutOrNull(45_000) { while (state.modrinthUi.loading) delay(200) }
             delay(500)
             if (qaDialog == "1") {
-                state.modrinthUi.results.firstOrNull()?.let { state.modrinthUi.openInstall(it) }
+                val row = state.modrinthUi.results.firstOrNull { it.hit.slug == qaSearch }
+                    ?: state.modrinthUi.results.firstOrNull()
+                row?.let { state.modrinthUi.openInstall(it) }
                 withTimeoutOrNull(45_000) { while (state.modrinthUi.loading) delay(200) }
                 delay(500)
             }
