@@ -59,6 +59,13 @@ enum class InstanceSort(val label: String) {
 }
 
 /**
+ * How an instance's process came to an end. Set at the moment the user asks for
+ * a stop, so exit codes never have to be guessed (143 = SIGTERM could also be
+ * an external kill, but a crash must still raise the red banner).
+ */
+private enum class LaunchOrigin { NORMAL, USER_STOP_REQUESTED }
+
+/**
  * ViewModel-ish state holder. The desktop entry point injects the HMCL-backed
  * engine, an [InstanceRepository] wired to the real game root, and the persisted
  * isolation setting. UI/common code never imports HMCL types or touches the FS.
@@ -72,6 +79,19 @@ class AppState(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var repository: InstanceRepository = repositoryFactory(gameRoot)
     private val lastLaunchTimes = mutableMapOf<String, Long>()
+
+    // instanceId -> origin of the running process. Guarded: stop() runs on the
+    // UI thread while launch()/awaitExit() run on Dispatchers.IO.
+    private val launchLock = Any()
+    private val launched = mutableMapOf<String, LaunchOrigin>()
+
+    private fun markOrigin(id: String, origin: LaunchOrigin?) {
+        synchronized(launchLock) {
+            if (origin == null) launched.remove(id) else launched[id] = origin
+        }
+    }
+
+    private fun originOf(id: String): LaunchOrigin? = synchronized(launchLock) { launched[id] }
 
     var page by mutableStateOf(AppPage.HOME)
         private set
@@ -230,6 +250,7 @@ class AppState(
             when (result) {
                 is LaunchResult.Failed -> {
                     activeInstanceId = null
+                    markOrigin(target, null)
                     launchError = result.message
                     println("[UI ${nowMillis()}] launch $target -> FAILED: ${result.message}")
                     refresh()
@@ -238,6 +259,7 @@ class AppState(
                 is LaunchResult.Started -> {
                     val handle = result.handle
                     activeInstanceId = target
+                    markOrigin(target, LaunchOrigin.NORMAL)
                     lastLaunchTimes[target] = nowMillis()
                     logFilePath = handle.logFile
                     println("[UI ${nowMillis()}] launch $target -> 运行中 pid=${handle.pid} log=${handle.logFile}")
@@ -250,12 +272,20 @@ class AppState(
                     }
                     scope.launch {
                         val code = engine.awaitExit(target)
+                        val origin = originOf(target) ?: LaunchOrigin.NORMAL
                         activeInstanceId = null
-                        println("[UI ${nowMillis()}] launch $target -> 就绪 (exit=$code)")
-                        refresh()
-                        if (code != 0) {
-                            launchError = classifyFailure(code, launchLogs, java, handle.logFile)
+                        when {
+                            origin == LaunchOrigin.USER_STOP_REQUESTED ->
+                                println("[UI ${nowMillis()}] stopped by user (exit=$code) $target -> 就绪")
+                            code != 0 -> {
+                                println("[UI ${nowMillis()}] launch $target -> 就绪 (crashed, exit=$code)")
+                                launchError = classifyFailure(code, launchLogs, java, handle.logFile)
+                            }
+                            else ->
+                                println("[UI ${nowMillis()}] launch $target -> 就绪 (exit=$code)")
                         }
+                        markOrigin(target, null)
+                        refresh()
                     }
                 }
             }
@@ -263,10 +293,17 @@ class AppState(
     }
 
     fun stop(id: String) {
+        // Tag BEFORE killing the process tree: awaitExit's collector must see
+        // USER_STOP_REQUESTED, otherwise a 143 would be misread as a crash.
+        markOrigin(id, LaunchOrigin.USER_STOP_REQUESTED)
         if (engine.stop(id)) {
+            println("[UI ${nowMillis()}] stop $id -> USER_STOP_REQUESTED (kill process tree)")
             launchLogs = launchLogs + "已请求停止 $id"
             activeInstanceId = null
             refresh()
+        } else {
+            // Nothing was running; drop the tentative tag.
+            markOrigin(id, null)
         }
     }
 
