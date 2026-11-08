@@ -37,6 +37,9 @@ class ModrinthService(
         runCatching { client.project(projectId).slug }.getOrDefault(projectId)
     }
 
+    /** Installed project ids for the "已安装" badge. */
+    fun installed(instanceId: String): Set<String> = installer.installedProjectIds(instanceId)
+
     suspend fun search(instance: InstanceSummary, query: String): List<ModrinthResultRow> {
         val loader = modLoaderOf(instance)
             ?: return emptyList() // vanilla: no mod loader
@@ -85,9 +88,20 @@ class ModrinthService(
             lookup = { vid -> runCatching { client.version(vid) }.getOrNull() },
             selectedOptionalIds = selectedOptionalIds,
         )
-        if (resolution.blocked != null) throw ModInstallException(resolution.blocked!!)
+        resolution.blocked?.let { throw ModInstallException(it) }
         if (resolution.errors.isNotEmpty()) {
             throw ModInstallException("依赖解析失败：" + resolution.errors.joinToString("; "))
+        }
+        // Strict double filter at the last possible moment: never install a
+        // version that does not declare BOTH the instance's mc and loader.
+        val loader = modLoaderOf(instance)
+            ?: throw ModInstallException("${instance.displayName} 没有模组加载器，无法安装模组。")
+        resolution.install.firstOrNull {
+            !ModResolver.compatible(it.version, instance.mcVersion, loader)
+        }?.let { bad ->
+            throw ModInstallException(
+                "版本 ${bad.version.versionNumber} 不支持 ${instance.mcVersion} + $loader，拒绝安装。",
+            )
         }
         resolution.install.filter { it.reason == "required" }.forEach { p ->
             log("resolved dependency ${slugOf(p.version.projectId)}-${p.version.versionNumber} (required)")

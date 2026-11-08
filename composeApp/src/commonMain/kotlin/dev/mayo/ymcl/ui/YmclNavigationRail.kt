@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -42,6 +43,7 @@ private data class NavEntry(val page: AppPage, val icon: ImageVector)
 private val NAV_ENTRIES = listOf(
     NavEntry(AppPage.HOME, Icons.Filled.PlayArrow),
     NavEntry(AppPage.INSTANCES, YmclIcons.Folder),
+    NavEntry(AppPage.GET_CONTENT, Icons.AutoMirrored.Filled.List),
     NavEntry(AppPage.DIAGNOSTICS, Icons.Filled.Warning),
     NavEntry(AppPage.SETTINGS, Icons.Filled.Settings),
 )

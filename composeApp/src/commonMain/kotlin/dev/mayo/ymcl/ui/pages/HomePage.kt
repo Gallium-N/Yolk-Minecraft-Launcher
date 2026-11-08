@@ -71,7 +71,10 @@ fun HomePage(state: AppState) {
                 meta = "${state.instances.size} 个实例 · ${state.updateCount} 个可更新",
             )
             if (state.instances.isEmpty()) {
-                HomeEmptyState(heroHeight = heroHeight)
+                HomeEmptyState(
+                    heroHeight = heroHeight,
+                    onGetContent = { state.navigate(AppPage.GET_CONTENT) },
+                )
             } else {
                 HeroCard(
                     state = state,
@@ -99,6 +102,7 @@ fun HomePage(state: AppState) {
                     GetContentColumn(
                         modifier = Modifier.width(rightWidth),
                         compact = compact,
+                        onBrowse = { state.navigate(AppPage.GET_CONTENT) },
                     )
                 }
             }
@@ -199,7 +203,7 @@ private fun HeroCard(
 
 /** 空 gameRoot：显示「还没有实例」，不崩、不白屏。 */
 @Composable
-private fun HomeEmptyState(heroHeight: Dp) {
+private fun HomeEmptyState(heroHeight: Dp, onGetContent: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
@@ -227,8 +231,7 @@ private fun HomeEmptyState(heroHeight: Dp) {
                 color = colors.onPrimaryContainer.copy(alpha = 0.78f),
             )
             Spacer(Modifier.height(20.dp))
-            // 占位：P4-step2 接「获取内容」页面；此处先不做导航。
-            PrimaryButton(text = "获取内容", width = 148.dp, onClick = { })
+            PrimaryButton(text = "获取内容", width = 148.dp, onClick = onGetContent)
         }
     }
 }
@@ -436,7 +439,11 @@ private val CONTENT_ROWS = listOf(
 )
 
 @Composable
-private fun GetContentColumn(modifier: Modifier = Modifier, compact: Boolean = false) {
+private fun GetContentColumn(
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    onBrowse: () -> Unit = {},
+) {
     val colors = MaterialTheme.colorScheme
     Column(modifier) {
         SectionHeader("获取内容")
@@ -450,19 +457,24 @@ private fun GetContentColumn(modifier: Modifier = Modifier, compact: Boolean = f
                 .padding(vertical = if (compact) 12.dp else 18.dp),
         ) {
             CONTENT_ROWS.forEachIndexed { index, row ->
-                ContentPanelRow(row = row, showDivider = index != CONTENT_ROWS.lastIndex)
+                ContentPanelRow(
+                    row = row,
+                    showDivider = index != CONTENT_ROWS.lastIndex,
+                    onClick = if (row.title == "浏览模组与整合包") onBrowse else null,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ContentPanelRow(row: ContentRow, showDivider: Boolean) {
+private fun ContentPanelRow(row: ContentRow, showDivider: Boolean, onClick: (() -> Unit)?) {
     val colors = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(84.dp),
+            .height(84.dp)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Row(
             modifier = Modifier

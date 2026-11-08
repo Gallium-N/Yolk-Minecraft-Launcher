@@ -117,7 +117,7 @@ fun InstancesPage(state: AppState) {
             }
 
             if (state.instances.isEmpty()) {
-                EmptyInstances(onGetContent = { state.navigate(AppPage.HOME) })
+                EmptyInstances(onGetContent = { state.navigate(AppPage.GET_CONTENT) })
             } else {
                 Column(
                     modifier = Modifier

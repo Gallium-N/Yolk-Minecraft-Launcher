@@ -19,11 +19,16 @@ data class ModrinthRawResponse(
     val body: String,
 )
 
-private fun httpGet(url: String, log: (String) -> Unit): ModrinthRawResponse {
-    val client = HttpClient.newBuilder()
+// One shared client: search fans out to ~20 concurrent version requests.
+private val sharedClient: HttpClient by lazy {
+    HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(20))
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build()
+}
+
+private fun httpGet(url: String, log: (String) -> Unit): ModrinthRawResponse {
+    val client = sharedClient
     log("MR headers: User-Agent: $MODRINTH_USER_AGENT")
     val request = HttpRequest.newBuilder(URI.create(url))
         .timeout(Duration.ofSeconds(60))

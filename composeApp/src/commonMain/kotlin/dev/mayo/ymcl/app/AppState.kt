@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 enum class AppPage(val title: String) {
     HOME("启动台"),
     INSTANCES("实例"),
+    GET_CONTENT("获取内容"),
     DIAGNOSTICS("诊断"),
     SETTINGS("设置"),
 }
@@ -75,10 +76,19 @@ class AppState(
     private val repositoryFactory: (String) -> InstanceRepository = { EmptyInstanceRepository() },
     gameRoot: String = defaultGameDirectory(),
     private val isolationEnabled: Boolean = true,
+    modrinth: ModrinthService? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var repository: InstanceRepository = repositoryFactory(gameRoot)
     private val lastLaunchTimes = mutableMapOf<String, Long>()
+
+    /** 获取内容页状态；null service keeps previews/tests offline. */
+    val modrinthUi = ModrinthUiState(
+        service = modrinth,
+        instances = { instances },
+        isRunning = { id -> activeInstanceId == id },
+        log = ::println,
+    )
 
     // instanceId -> origin of the running process. Guarded: stop() runs on the
     // UI thread while launch()/awaitExit() run on Dispatchers.IO.
@@ -215,6 +225,7 @@ class AppState(
         if (instances.none { it.id == selectedInstanceId }) {
             selectedInstanceId = instances.firstOrNull()?.id
         }
+        modrinthUi.syncInstances()
     }
 
     fun launch(id: String? = null) {

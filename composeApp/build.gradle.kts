@@ -62,7 +62,8 @@ tasks.withType<JavaExec>().configureEach {
     // QA/system properties for the real UI run (`./gradlew run -Dymcl.game.root=...`).
     listOf(
         "ymcl.theme", "ymcl.game.root", "ymcl.window.width", "ymcl.window.height",
-        "ymcl.qa.autolaunch",
+        "ymcl.qa.autolaunch", "ymcl.qa.modrinth.instance", "ymcl.qa.modrinth.search",
+        "ymcl.qa.modrinth.dialog", "ymcl.qa.modrinth.install",
     ).forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }

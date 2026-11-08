@@ -24,6 +24,7 @@ import dev.mayo.ymcl.app.AppPage
 import dev.mayo.ymcl.app.AppState
 import dev.mayo.ymcl.ui.components.LocalReduceMotion
 import dev.mayo.ymcl.ui.pages.DiagnosticsPage
+import dev.mayo.ymcl.ui.pages.GetContentPage
 import dev.mayo.ymcl.ui.pages.HomePage
 import dev.mayo.ymcl.ui.pages.InstancesPage
 import dev.mayo.ymcl.ui.pages.SettingsPage
@@ -80,6 +81,7 @@ fun YmclApp(state: AppState) {
                                 when (page) {
                                     AppPage.HOME -> HomePage(state)
                                     AppPage.INSTANCES -> InstancesPage(state)
+                                    AppPage.GET_CONTENT -> GetContentPage(state)
                                     AppPage.DIAGNOSTICS -> DiagnosticsPage(state)
                                     AppPage.SETTINGS -> SettingsPage(state)
                                 }
