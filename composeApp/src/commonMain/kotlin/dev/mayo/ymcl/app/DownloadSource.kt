@@ -11,6 +11,7 @@ private const val FABRIC_MAVEN = "https://maven.fabricmc.net"
 private const val FABRIC_META = "https://meta.fabricmc.net"
 private const val FORGE_MAVEN = "https://maven.minecraftforge.net"
 private const val NEOFORGE_MAVEN = "https://maven.neoforged.net"
+private const val MODRINTH_API = "https://api.modrinth.com/v2"
 private const val UNREACHABLE = "https://127.0.0.1:9"
 
 private const val FABRIC_LOADER_METADATA_PATH = "net/fabricmc/fabric-loader/maven-metadata.xml"
@@ -33,6 +34,68 @@ interface DownloadSource {
 
     /** BMCLAPI has no asset-index endpoint (probed 404); the manifest URL is authoritative. */
     fun assetIndex(id: String, url: String): List<String> = listOf(url)
+
+    // ---- Modrinth (P4 step-2). Single candidate each: no CN mirror exists. ----
+    // Defaults so every existing source / test fake keeps compiling unchanged.
+    /** [facets] is the raw 2-D JSON string, e.g. [["project_type:mod"],...]. */
+    fun modrinthSearch(
+        query: String,
+        facets: String,
+        offset: Int = 0,
+        limit: Int = 20,
+        popular: Boolean = false,
+    ): List<String> = listOf(modrinthSearchUrl(query, facets, offset, limit, popular))
+
+    fun modrinthProject(idOrSlug: String): List<String> =
+        listOf("$MODRINTH_API/project/${percentEncode(idOrSlug)}")
+
+    /** game_versions / loaders are strict JSON arrays; the instance's mc + loader decide them. */
+    fun modrinthVersions(idOrSlug: String, mcVersion: String, loader: String): List<String> =
+        listOf(
+            modrinthUrl(
+                "/project/${percentEncode(idOrSlug)}/version",
+                "game_versions" to "[\"$mcVersion\"]",
+                "loaders" to "[\"$loader\"]",
+            ),
+        )
+
+    fun modrinthVersion(versionId: String): List<String> =
+        listOf("$MODRINTH_API/version/${percentEncode(versionId)}")
+
+    /** CDN url comes from version.files[].url; not a new host literal. */
+    fun modrinthFile(url: String): List<String> = listOf(url)
+}
+
+/** Percent-encode an arbitrary UTF-8 string without java.net (commonMain safe). */
+private val HEX = "0123456789ABCDEF".toCharArray()
+
+private fun percentEncode(value: String): String = buildString {
+    for (byte in value.encodeToByteArray()) {
+        val v = byte.toInt() and 0xFF
+        val c = v.toChar()
+        if (c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '-' || c == '_' || c == '.' || c == '~') {
+            append(c)
+        } else {
+            append('%').append(HEX[v ushr 4]).append(HEX[v and 0x0F])
+        }
+    }
+}
+
+private fun modrinthUrl(path: String, vararg params: Pair<String, String>): String {
+    val query = params.joinToString("&") { (k, v) -> "$k=${percentEncode(v)}" }
+    return "$MODRINTH_API$path?$query"
+}
+
+/** Shared by every source: Modrinth has no mirror, so candidate lists are length 1. */
+private fun modrinthSearchUrl(query: String, facets: String, offset: Int, limit: Int, popular: Boolean): String {
+    val params = mutableListOf<Pair<String, String>>()
+    // Empty query -> popular feed (index=downloads, no query param).
+    if (query.isNotBlank()) params += "query" to query.trim()
+    params += "limit" to limit.toString()
+    params += "offset" to offset.toString()
+    params += "index" to if (popular || query.isBlank()) "downloads" else "relevance"
+    params += "facets" to facets
+    return modrinthUrl("/search", *params.toTypedArray())
 }
 
 private fun mavenPath(
@@ -160,6 +223,11 @@ object UnreachableDownloadSource : DownloadSource {
     override fun fabricLoaderMetadata(mcVersion: String): List<String> = dead()
     override fun fabricProfile(mcVersion: String, loaderVersion: String): List<String> = dead()
     override fun assetIndex(id: String, url: String): List<String> = dead()
+    override fun modrinthSearch(query: String, facets: String, offset: Int, limit: Int, popular: Boolean): List<String> = dead()
+    override fun modrinthProject(idOrSlug: String): List<String> = dead()
+    override fun modrinthVersions(idOrSlug: String, mcVersion: String, loader: String): List<String> = dead()
+    override fun modrinthVersion(versionId: String): List<String> = dead()
+    override fun modrinthFile(url: String): List<String> = dead()
 }
 
 fun defaultDownloadSource(preferMirror: Boolean = true): DownloadSource =
