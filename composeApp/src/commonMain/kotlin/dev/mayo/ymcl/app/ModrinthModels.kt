@@ -52,3 +52,24 @@ data class ModrinthProject(
     val description: String,
     val projectType: String,
 )
+
+/**
+ * Human-friendly label for a raw Modrinth `version_number`. Modrinth stores
+ * strings like `mc1.20.1-0.5.13-fabric` or `1.7.6+1.20.1`; the result page
+ * shows just `0.5.13` plus a small loader chip instead of the raw string.
+ */
+data class VersionLabel(val version: String, val loader: String?)
+
+private val MC_TOKEN = Regex("""(?i)mc\d+(?:\.\d+){1,3}""")
+private val LOADER_WORD = Regex("""(?i)\b(fabric|forge|quilt|neoforge|quilted|sodium|iris)\b""")
+private val VERSION_TOKEN = Regex("""\d+(?:\.\d+){1,3}(?:[-+._]?[0-9A-Za-z]+)*""")
+
+fun versionLabelOf(raw: String, loaders: List<String>): VersionLabel {
+    val loader = loaders.firstOrNull()?.takeIf { it.isNotBlank() }
+        ?: Regex("""(?i)(fabric|forge|quilt|neoforge)""").find(raw)?.value
+    var rest = MC_TOKEN.replace(raw, " ")
+    rest = LOADER_WORD.replace(rest, " ")
+    val version = VERSION_TOKEN.find(rest)?.value?.trimEnd('-', '+', '.', '_', ' ')
+        ?.takeIf { it.isNotBlank() } ?: raw.trim()
+    return VersionLabel(version, loader)
+}

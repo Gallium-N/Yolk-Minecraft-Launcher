@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -88,6 +92,7 @@ fun YmclNavigationRail(current: AppPage, onSelect: (AppPage) -> Unit) {
 @Composable
 private fun NavRailItem(entry: NavEntry, selected: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val density = LocalDensity.current
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
@@ -103,30 +108,51 @@ private fun NavRailItem(entry: NavEntry, selected: Boolean, onClick: () -> Unit)
         label = "nav-item-fg",
     )
 
-    Column(
-        modifier = Modifier
-            .width(64.dp)
-            .height(64.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(background)
-            .hoverable(interaction)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = entry.icon,
-            contentDescription = entry.page.title,
-            tint = contentColor,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = entry.page.title,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            color = contentColor,
-        )
+    Box {
+        Column(
+            modifier = Modifier
+                .width(64.dp)
+                .height(64.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(background)
+                .hoverable(interaction)
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = entry.icon,
+                contentDescription = entry.page.title,
+                tint = contentColor,
+                modifier = Modifier.size(22.dp),
+            )
+            // Text label only for the selected item; others rely on the hover tooltip.
+            if (selected) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = entry.page.title,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = contentColor,
+                )
+            }
+        }
+        if (hovered && !selected) {
+            Popup(
+                alignment = Alignment.CenterStart,
+                offset = IntOffset(with(density) { 72.dp.roundToPx() }, 0),
+                properties = PopupProperties(focusable = false),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.inverseSurface)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(entry.page.title, fontSize = 12.sp, color = colors.inverseOnSurface)
+                }
+            }
+        }
     }
 }

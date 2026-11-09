@@ -108,7 +108,7 @@ fun GetContentPage(state: AppState) {
                 }
             }
         } else {
-            SectionHeader("搜索结果", hint = if (ui.query.isBlank()) "热门模组" else "「${ui.query}」")
+            SectionHeader("搜索结果", hint = if (ui.query.isBlank()) "热门模组" else "关键词：${ui.query}")
             Spacer(Modifier.height(8.dp))
             Column(
                 modifier = Modifier
@@ -268,10 +268,15 @@ private fun ResultRow(row: ModrinthResultRow, ui: ModrinthUiState) {
         if (version == null) {
             Text("无兼容版本", fontSize = 11.sp, color = colors.error)
         } else {
+            val label = dev.mayo.ymcl.app.versionLabelOf(version.versionNumber, version.loaders)
             Column(horizontalAlignment = Alignment.End) {
-                Text(version.versionNumber, fontSize = 12.sp, color = colors.onSurface)
+                Text(label.version, fontSize = 12.sp, color = colors.onSurface)
                 Spacer(Modifier.height(4.dp))
-                ChannelBadge(version.versionType)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    label.loader?.let { LoaderChip(it) }
+                    if (label.loader != null) Spacer(Modifier.width(6.dp))
+                    ChannelBadge(version.versionType)
+                }
             }
         }
         Spacer(Modifier.width(16.dp))
@@ -286,6 +291,19 @@ private fun ResultRow(row: ModrinthResultRow, ui: ModrinthUiState) {
         }
     }
     Spacer(Modifier.height(8.dp))
+}
+
+@Composable
+private fun LoaderChip(loader: String) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.surfaceContainerHigh)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(loader, fontSize = 10.sp, color = colors.onSurfaceVariant)
+    }
 }
 
 @Composable
