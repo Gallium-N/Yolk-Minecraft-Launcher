@@ -62,7 +62,7 @@ data class VersionLabel(val version: String, val loader: String?)
 
 private val MC_TOKEN = Regex("""(?i)mc\d+(?:\.\d+){1,3}""")
 private val LOADER_WORD = Regex("""(?i)\b(fabric|forge|quilt|neoforge|quilted|sodium|iris)\b""")
-private val VERSION_TOKEN = Regex("""\d+(?:\.\d+){1,3}(?:[-+._]?[0-9A-Za-z]+)*""")
+private val VERSION_TOKEN = Regex("""\d+(?:\.\d+){1,3}""")
 
 fun versionLabelOf(raw: String, loaders: List<String>): VersionLabel {
     val loader = loaders.firstOrNull()?.takeIf { it.isNotBlank() }
