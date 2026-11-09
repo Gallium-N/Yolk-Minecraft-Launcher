@@ -53,6 +53,8 @@ class LoaderInstaller(
         manifest: VersionManifest,
         instanceId: String? = null,
         parentInstanceId: String = mcVersion,
+        /** When a modpack pins a loader version, use it instead of the newest. */
+        requestedLoaderVersion: String? = null,
     ): LoaderInstallResult {
         if (manifest.versions.none { it.id == mcVersion }) {
             throw LoaderInstallException(
@@ -60,7 +62,15 @@ class LoaderInstaller(
             )
         }
 
-        val selection = meta.loadFabricProfileWithFallback(mcVersion)
+        val selection = if (requestedLoaderVersion != null) {
+            FabricProfileSelection(
+                requestedLoaderVersion,
+                meta.loadFabricProfile(mcVersion, requestedLoaderVersion).value,
+                emptyList(),
+            )
+        } else {
+            meta.loadFabricProfileWithFallback(mcVersion)
+        }
         val loaderVersion = selection.loaderVersion
         val versionId = instanceId
             ?: selection.profile.id.ifBlank { "fabric-loader-$loaderVersion-$mcVersion" }

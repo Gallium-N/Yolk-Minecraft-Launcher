@@ -12,6 +12,9 @@ private const val FABRIC_META = "https://meta.fabricmc.net"
 private const val FORGE_MAVEN = "https://maven.minecraftforge.net"
 private const val NEOFORGE_MAVEN = "https://maven.neoforged.net"
 private const val MODRINTH_API = "https://api.modrinth.com/v2"
+private const val CURSEFORGE_API = "https://api.curseforge.com"
+private const val CURSE_TOOLS = "https://api.curse.tools"
+private const val EDGE_FORGE_CDN = "https://edge.forgecdn.net"
 private const val UNREACHABLE = "https://127.0.0.1:9"
 
 private const val FABRIC_LOADER_METADATA_PATH = "net/fabricmc/fabric-loader/maven-metadata.xml"
@@ -64,6 +67,24 @@ interface DownloadSource {
 
     /** CDN url comes from version.files[].url; not a new host literal. */
     fun modrinthFile(url: String): List<String> = listOf(url)
+
+    // ---- P5 modpack: CurseForge metadata + CDN. Single candidate each. ----
+    /** Level 1: official API (caller sends the key as x-api-key, not in the URL). */
+    fun cfOfficialFile(projectId: String, fileId: String): List<String> =
+        listOf("$CURSEFORGE_API/v1/mods/${percentEncode(projectId)}/files/${percentEncode(fileId)}")
+
+    /** Level 2: public read-only proxy, logged as via=curse.tools. */
+    fun cfProxyFile(projectId: String, fileId: String): List<String> =
+        listOf("$CURSE_TOOLS/v1/cf/mods/${percentEncode(projectId)}/files/${percentEncode(fileId)}")
+
+    /** Built ONLY from the real filename returned by the API/proxy, never a guess. */
+    fun cfCdnFile(fileId: String, filename: String): List<String> {
+        val id = fileId.toLongOrNull() ?: 0L
+        return listOf("$EDGE_FORGE_CDN/files/${id / 1000}/${id % 1000}/${percentEncode(filename)}")
+    }
+
+    /** Generic passthrough for pack file URLs (mrpack downloads[] / resolved CF urls). */
+    fun modpackFile(url: String): List<String> = listOf(url)
 }
 
 /** Percent-encode an arbitrary UTF-8 string without java.net (commonMain safe). */
@@ -228,6 +249,10 @@ object UnreachableDownloadSource : DownloadSource {
     override fun modrinthVersions(idOrSlug: String, mcVersion: String, loader: String): List<String> = dead()
     override fun modrinthVersion(versionId: String): List<String> = dead()
     override fun modrinthFile(url: String): List<String> = dead()
+    override fun cfOfficialFile(projectId: String, fileId: String): List<String> = dead()
+    override fun cfProxyFile(projectId: String, fileId: String): List<String> = dead()
+    override fun cfCdnFile(fileId: String, filename: String): List<String> = dead()
+    override fun modpackFile(url: String): List<String> = dead()
 }
 
 fun defaultDownloadSource(preferMirror: Boolean = true): DownloadSource =

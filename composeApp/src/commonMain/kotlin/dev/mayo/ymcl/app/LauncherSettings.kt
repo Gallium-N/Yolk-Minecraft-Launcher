@@ -14,6 +14,10 @@ data class LauncherSettingsFile(
     val gameRoot: String = "",
     /** Version isolation is the default; missing field falls back to true. */
     val isolatedInstances: Boolean = true,
+    /** CurseForge official API key; empty -> fall back to the curse.tools proxy. */
+    val curseForgeApiKey: String = "",
+    /** Allow the third-party read-only curse.tools proxy when no key is set. Default on. */
+    val allowCurseToolsProxy: Boolean = true,
 )
 
 /** Persists launcher-wide preferences at `<appRoot>/data/launcher.json` (UTF-8, no BOM). */
@@ -66,6 +70,15 @@ class LauncherSettings(
 
     /** Whether new/opened instances use version isolation (default true). */
     fun isolationEnabled(): Boolean = load().isolatedInstances
+
+    fun curseForgeApiKey(): String = load().curseForgeApiKey
+
+    fun allowCurseToolsProxy(): Boolean = load().allowCurseToolsProxy
+
+    /** Persists only the two modpack switches, keeping every other field. */
+    fun saveModpackSettings(key: String, allowProxy: Boolean) {
+        save(load().copy(curseForgeApiKey = key, allowCurseToolsProxy = allowProxy))
+    }
 }
 
 // TODO(settings-ui): 下载分组里加「优先使用国内镜像（BMCLAPI）」开关，写入
