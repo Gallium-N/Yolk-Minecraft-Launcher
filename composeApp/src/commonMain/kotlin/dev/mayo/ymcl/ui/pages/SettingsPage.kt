@@ -58,6 +58,7 @@ fun SettingsPage(state: AppState) {
                 when (state.settingsGroup) {
                     SettingsGroup.APPEARANCE -> AppearanceCards(state)
                     SettingsGroup.GAME -> GameCards(state)
+                    SettingsGroup.DOWNLOAD -> DownloadCards(state)
                     SettingsGroup.ABOUT -> AboutCard()
                     else -> PlaceholderCard(state.settingsGroup)
                 }
@@ -315,6 +316,84 @@ private fun GameCards(state: AppState) {
                     }
                     Spacer(Modifier.height(6.dp))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadCards(state: AppState) {
+    val colors = MaterialTheme.colorScheme
+    var keyDraft by remember { mutableStateOf(state.curseForgeApiKey) }
+    LaunchedEffect(state.curseForgeApiKey) { keyDraft = state.curseForgeApiKey }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SettingsCard(height = 164.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "允许 curse.tools 只读代理",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                )
+                Spacer(Modifier.weight(1f))
+                dev.mayo.ymcl.ui.components.YmclSwitch(
+                    checked = state.allowCurseToolsProxy,
+                    onCheckedChange = { state.saveAllowCurseToolsProxy(it) },
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "导入 CurseForge 整合包时，未配置 API key 就用这个第三方代理解析文件名（日志标注 via=curse.tools）。",
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+                color = colors.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "关闭后只走官方 API key；两者都不可用会列出缺文件清单。",
+                fontSize = 11.sp,
+                color = colors.onSurfaceVariant,
+            )
+        }
+        SettingsCard(height = 168.dp) {
+            Text("CurseForge API key", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "配置后走官方 API 解析文件名，优先于代理。仅保存在本机 launcher.json。",
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+                color = colors.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surfaceContainerHigh)
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (keyDraft.isEmpty()) {
+                        Text("未配置（留空走代理）", fontSize = 12.sp, color = colors.onSurfaceVariant)
+                    }
+                    BasicTextField(
+                        value = keyDraft,
+                        onValueChange = { keyDraft = it },
+                        singleLine = true,
+                        cursorBrush = SolidColor(colors.primary),
+                        textStyle = TextStyle(fontSize = 12.sp, color = colors.onSurface),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                OutlinedPillButton(
+                    text = "保存",
+                    width = 92.dp,
+                    onClick = { state.saveCurseForgeApiKey(keyDraft.trim()) },
+                )
             }
         }
     }

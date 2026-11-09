@@ -26,6 +26,9 @@ expect fun writeTextUtf8Lf(path: String, text: String)
 
 expect fun openFolder(path: String): Boolean
 
+/** Native .mrpack/.zip chooser; returns the absolute path or null on cancel. */
+expect fun pickModpackFile(): String?
+
 expect fun isSystemDark(): Boolean
 
 /** "-Dymcl.theme=dark|light" (or YMCL_THEME) used to verify both schemes on Linux. */

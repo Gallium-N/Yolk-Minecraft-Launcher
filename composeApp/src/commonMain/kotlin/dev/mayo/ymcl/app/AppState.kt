@@ -22,6 +22,7 @@ enum class AppPage(val title: String) {
     HOME("启动台"),
     INSTANCES("实例"),
     GET_CONTENT("获取内容"),
+    IMPORT("导入整合包"),
     DIAGNOSTICS("诊断"),
     SETTINGS("设置"),
 }
@@ -77,6 +78,10 @@ class AppState(
     gameRoot: String = defaultGameDirectory(),
     private val isolationEnabled: Boolean = true,
     modrinth: ModrinthService? = null,
+    modpack: ModpackBackend? = null,
+    initialCurseForgeApiKey: String = "",
+    initialAllowCurseToolsProxy: Boolean = true,
+    private val persistModpackSettings: (String, Boolean) -> Unit = { _, _ -> },
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var repository: InstanceRepository = repositoryFactory(gameRoot)
@@ -87,6 +92,17 @@ class AppState(
         service = modrinth,
         instances = { instances },
         isRunning = { id -> activeInstanceId == id },
+        log = ::println,
+    )
+
+    /** 导入整合包向导状态；null backend keeps previews/tests offline. */
+    val modpackUi = ModpackUiState(
+        backend = modpack,
+        onFinished = { id ->
+            navigate(AppPage.INSTANCES)
+            selectInstance(id)
+            refresh()
+        },
         log = ::println,
     )
 
@@ -147,6 +163,14 @@ class AppState(
 
     var settingsGroup by mutableStateOf(SettingsGroup.APPEARANCE)
 
+    /** CurseForge official API key (empty -> curse.tools proxy). */
+    var curseForgeApiKey by mutableStateOf(initialCurseForgeApiKey)
+        private set
+
+    /** Third-party read-only curse.tools proxy switch, default on. */
+    var allowCurseToolsProxy by mutableStateOf(initialAllowCurseToolsProxy)
+        private set
+
     var activeInstanceId by mutableStateOf<String?>(null)
         private set
 
@@ -193,6 +217,22 @@ class AppState(
 
     fun navigate(target: AppPage) {
         page = target
+    }
+
+    /** Entry point for the 导入整合包 button, the drop target and the QA hook. */
+    fun openImport(path: String) {
+        navigate(AppPage.IMPORT)
+        modpackUi.prepare(path)
+    }
+
+    fun saveCurseForgeApiKey(value: String) {
+        curseForgeApiKey = value
+        persistModpackSettings(value, allowCurseToolsProxy)
+    }
+
+    fun saveAllowCurseToolsProxy(value: Boolean) {
+        allowCurseToolsProxy = value
+        persistModpackSettings(curseForgeApiKey, value)
     }
 
     fun selectInstance(id: String) {

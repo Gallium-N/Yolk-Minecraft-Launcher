@@ -8,43 +8,73 @@ import androidx.compose.ui.window.rememberWindowState
 import dev.mayo.ymcl.app.AppPage
 import dev.mayo.ymcl.app.AppState
 import dev.mayo.ymcl.app.LauncherSettings
+import dev.mayo.ymcl.app.MetaRepository
 import dev.mayo.ymcl.app.ModInstaller
+import dev.mayo.ymcl.app.ModpackBackendImpl
+import dev.mayo.ymcl.app.ModpackUiState
 import dev.mayo.ymcl.app.ModrinthClient
 import dev.mayo.ymcl.app.ModrinthService
 import dev.mayo.ymcl.engine.HmclEngine
 import dev.mayo.ymcl.platform.FileInstanceRepository
+import dev.mayo.ymcl.platform.FileMetaStore
+import dev.mayo.ymcl.platform.HttpCfFetcher
 import dev.mayo.ymcl.platform.HttpDownloadTransport
+import dev.mayo.ymcl.platform.HttpMetaFetcher
 import dev.mayo.ymcl.platform.ModrinthMetaFetcher
 import dev.mayo.ymcl.platform.NativeDownloadFileSystem
+import dev.mayo.ymcl.platform.ZipModpackArchive
 import dev.mayo.ymcl.platform.appDataDirectory
 import dev.mayo.ymcl.ui.YmclApp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import java.awt.Dimension
+import java.awt.datatransfer.DataFlavor
+import java.awt.dnd.DnDConstants
+import java.awt.dnd.DropTarget
+import java.awt.dnd.DropTargetDropEvent
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
+import java.io.File
 
 fun main() = application {
     val appRoot = appDataDirectory()
-    // Shared game root. -Dymcl.game.root / YMCL_GAME_ROOT override it for QA
-    // (e.g. pointing at the P4 built instances); otherwise use the setting.
+    val settings = LauncherSettings(appRoot)
+    // Shared game root. -Dymcl.game.root / YMCL_GAME_ROOT override it for QA.
     val gameRoot = System.getProperty("ymcl.game.root")
         ?: System.getenv("YMCL_GAME_ROOT")
-        ?: LauncherSettings(appRoot).gameRootPath()
-    val isolationEnabled = LauncherSettings(appRoot).isolationEnabled()
+        ?: settings.gameRootPath()
+    val isolationEnabled = settings.isolationEnabled()
+    val source = settings.source()
 
-    // Modrinth stack: platform fetcher (UA + 429) -> client (JSON/bytes via the
-    // existing MetaFetcher/DownloadTransport interfaces) -> resolver -> installer.
-    val source = LauncherSettings(appRoot).source()
+    // ---- P4 Modrinth stack ----
     val modrinthFetcher = ModrinthMetaFetcher(log = ::println)
     val modrinthFs = NativeDownloadFileSystem(gameRoot)
-    val modrinthClient = ModrinthClient(source, modrinthFetcher, HttpDownloadTransport(), ::println)
+    val transport = HttpDownloadTransport()
+    val modrinthClient = ModrinthClient(source, modrinthFetcher, transport, ::println)
     val modrinthInstaller = ModInstaller(modrinthFs, { url -> modrinthClient.file(url) }, ::println)
     val modrinthService = ModrinthService(modrinthClient, modrinthInstaller, ::println)
 
-    // Hoisted so the focus listener and QA hook can reach the same state.
+    // ---- P5 modpack stack ----
+    // now=0 keeps the P3 meta caches fresh, so the base install makes no meta
+    // network calls except the pinned Fabric profile when it is not cached yet.
+    val meta = MetaRepository(appRoot, source, FileMetaStore(), HttpMetaFetcher()) { 0L }
+    val packFs = NativeDownloadFileSystem(gameRoot)
+    val modpack = ModpackBackendImpl(
+        gameRoot = gameRoot,
+        source = source,
+        fs = packFs,
+        meta = meta,
+        transport = transport,
+        archiveFactory = { ZipModpackArchive(it) },
+        cfFetcher = HttpCfFetcher(::println),
+        apiKey = { settings.curseForgeApiKey() },
+        proxyEnabled = { settings.allowCurseToolsProxy() },
+        log = ::println,
+    )
+
+    // Hoisted so the focus listener, drop target and QA hooks can reach the same state.
     val state = remember {
         AppState(
             engine = HmclEngine(appRoot),
@@ -52,6 +82,10 @@ fun main() = application {
             gameRoot = gameRoot,
             isolationEnabled = isolationEnabled,
             modrinth = modrinthService,
+            modpack = modpack,
+            initialCurseForgeApiKey = settings.curseForgeApiKey(),
+            initialAllowCurseToolsProxy = settings.allowCurseToolsProxy(),
+            persistModpackSettings = { key, proxy -> settings.saveModpackSettings(key, proxy) },
         )
     }
 
@@ -62,6 +96,8 @@ fun main() = application {
     val qaSearch = System.getProperty("ymcl.qa.modrinth.search")
     val qaDialog = System.getProperty("ymcl.qa.modrinth.dialog")
     val qaInstall = System.getProperty("ymcl.qa.modrinth.install")
+    val qaPackFile = System.getProperty("ymcl.qa.modpack.file")
+    val qaPackStart = System.getProperty("ymcl.qa.modpack.start") == "1"
 
     // Do not pin the size through WindowState: a tiling compositor may map the
     // window larger first and re-applying a size would draw only in the corner.
@@ -81,8 +117,6 @@ fun main() = application {
         LaunchedEffect(window) {
             window.addComponentListener(object : ComponentAdapter() {
                 override fun componentResized(e: ComponentEvent) {
-                    // XWayland + tiling WMs can resize the peer without the AWT
-                    // content pane being revalidated; force layout + repaint.
                     window.contentPane.revalidate()
                     window.contentPane.repaint()
                 }
@@ -93,14 +127,37 @@ fun main() = application {
                     state.refresh()
                 }
             })
+            // Drag a .mrpack/.zip onto the window -> open the import wizard.
+            try {
+                window.dropTarget = object : DropTarget() {
+                    override fun drop(event: DropTargetDropEvent) {
+                        try {
+                            event.acceptDrop(DnDConstants.ACTION_COPY)
+                            val data = event.transferable.getTransferData(DataFlavor.javaFileListFlavor)
+                            val path = (data as? List<*>)?.firstOrNull { item ->
+                                item is File &&
+                                    (item.name.endsWith(".mrpack", true) || item.name.endsWith(".zip", true))
+                            }?.let { (it as File).absolutePath }
+                            event.dropComplete(true)
+                            if (path != null) {
+                                println("DROP modpack: $path")
+                                state.openImport(path)
+                            }
+                        } catch (e: Exception) {
+                            event.dropComplete(false)
+                            println("DROP error: ${e.message}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                println("DROP target unavailable: ${e.message}")
+            }
         }
-        // QA-only: exercise the exact same AppState.launch path a button uses,
-        // without a physical click. Off for normal runs and screenshots.
+        // QA-only: exercise the exact same AppState.launch path a button uses.
         LaunchedEffect(autoLaunch) {
             autoLaunch?.takeIf { it.isNotBlank() }?.let { state.launch(it) }
         }
         // QA-only: drive the real 获取内容 page through its normal state methods.
-        // Off unless -Dymcl.qa.modrinth.search is set.
         LaunchedEffect(qaSearch, qaDialog, qaInstall) {
             if (qaSearch == null) return@LaunchedEffect
             qaInstance?.let { state.modrinthUi.selectedInstanceId = it }
@@ -120,6 +177,19 @@ fun main() = application {
                 withTimeoutOrNull(45_000) { while (state.modrinthUi.dialog == null) delay(200) }
                 delay(300)
                 state.modrinthUi.confirmInstall()
+            }
+        }
+        // QA-only: open the import wizard with a real pack file, optionally
+        // auto-clicking 开始导入 once the confirm page is ready.
+        LaunchedEffect(qaPackFile) {
+            if (qaPackFile == null) return@LaunchedEffect
+            state.openImport(qaPackFile)
+            if (qaPackStart) {
+                withTimeoutOrNull(30_000) {
+                    while (state.modpackUi.stage != ModpackUiState.Stage.CONFIRM) delay(100)
+                }
+                delay(400)
+                if (state.modpackUi.stage == ModpackUiState.Stage.CONFIRM) state.modpackUi.start()
             }
         }
         YmclApp(state = state)

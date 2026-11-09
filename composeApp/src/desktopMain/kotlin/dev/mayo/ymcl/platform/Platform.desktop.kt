@@ -237,6 +237,24 @@ actual fun openFolder(path: String): Boolean {
     }
 }
 
+actual fun pickModpackFile(): String? = try {
+    val dialog = java.awt.FileDialog(
+        null as java.awt.Frame?,
+        "选择整合包（.mrpack / .zip）",
+        java.awt.FileDialog.LOAD,
+    )
+    dialog.setFilenameFilter { _, name ->
+        name.endsWith(".mrpack", ignoreCase = true) || name.endsWith(".zip", ignoreCase = true)
+    }
+    dialog.isVisible = true
+    val dir = dialog.directory
+    val file = dialog.file
+    if (dir != null && file != null) File(dir, file).absolutePath else null
+} catch (e: Exception) {
+    println("YMCL file chooser failed: ${e.message}")
+    null
+}
+
 private val systemDark: Boolean by lazy { detectSystemDark() }
 
 actual fun isSystemDark(): Boolean = systemDark

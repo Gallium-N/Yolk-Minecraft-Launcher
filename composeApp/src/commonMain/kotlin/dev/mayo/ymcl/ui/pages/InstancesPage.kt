@@ -99,6 +99,12 @@ fun InstancesPage(state: AppState) {
                 SortMenu(state = state)
                 Spacer(Modifier.width(12.dp))
                 OutlinedPillButton(text = "刷新", width = 96.dp, onClick = { state.refresh() })
+                Spacer(Modifier.width(12.dp))
+                PrimaryButton(
+                    text = "导入整合包",
+                    width = 128.dp,
+                    onClick = { state.navigate(AppPage.IMPORT) },
+                )
             }
 
             Spacer(Modifier.height(16.dp))
