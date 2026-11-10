@@ -23,6 +23,7 @@ enum class AppPage(val title: String) {
     INSTANCES("实例"),
     GET_CONTENT("获取内容"),
     IMPORT("导入整合包"),
+    NEW_INSTANCE("新建实例"),
     DIAGNOSTICS("诊断"),
     SETTINGS("设置"),
 }
@@ -79,6 +80,7 @@ class AppState(
     private val isolationEnabled: Boolean = true,
     modrinth: ModrinthService? = null,
     modpack: ModpackBackend? = null,
+    newInstance: NewInstanceBackend? = null,
     initialCurseForgeApiKey: String = "",
     initialAllowCurseToolsProxy: Boolean = true,
     private val persistModpackSettings: (String, Boolean) -> Unit = { _, _ -> },
@@ -98,6 +100,17 @@ class AppState(
     /** 导入整合包向导状态；null backend keeps previews/tests offline. */
     val modpackUi = ModpackUiState(
         backend = modpack,
+        onFinished = { id ->
+            navigate(AppPage.INSTANCES)
+            selectInstance(id)
+            refresh()
+        },
+        log = ::println,
+    )
+
+    /** New-instance wizard state (section G). */
+    val newInstanceUi = NewInstanceUiState(
+        backend = newInstance,
         onFinished = { id ->
             navigate(AppPage.INSTANCES)
             selectInstance(id)

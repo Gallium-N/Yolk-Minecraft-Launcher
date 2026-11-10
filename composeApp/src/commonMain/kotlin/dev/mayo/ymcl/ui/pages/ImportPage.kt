@@ -205,40 +205,18 @@ private fun ConfirmCard(ui: ModpackUiState) {
 
 @Composable
 private fun ImportingCard(ui: ModpackUiState) {
-    val colors = MaterialTheme.colorScheme
     val pr = ui.progress
-    val fraction = if (pr.totalFiles > 0) pr.doneFiles.toFloat() / pr.totalFiles.toFloat() else 0f
     Column(Modifier.fillMaxSize()) {
         SectionHeader("正在导入")
         Spacer(Modifier.height(16.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(colors.surfaceContainerLow)
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-        ) {
-            Column {
-                Text(pr.stage, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
-                Spacer(Modifier.height(12.dp))
-                LinearProgressIndicator(
-                    progress = { fraction },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(16.dp))
-                InfoRow("文件", "${pr.doneFiles} / ${pr.totalFiles}")
-                InfoRow("字节", "${formatBytes(pr.doneBytes)} / ${formatBytes(pr.totalBytes)}")
-                InfoRow("当前文件", pr.currentFile ?: "—")
-            }
-        }
-        Spacer(Modifier.height(20.dp))
-        TonalButton(text = "取消导入", width = 128.dp, onClick = { ui.cancel() })
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "取消会停止下载并清理 .part，已解压的目录保留并提示「未完成」。",
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
-            color = colors.onSurfaceVariant,
+        dev.mayo.ymcl.ui.components.InstallProgressCard(
+            stageName = pr.stage,
+            done = pr.doneFiles,
+            total = pr.totalFiles,
+            bytes = pr.doneBytes,
+            current = pr.currentFile,
+            cancelLabel = "取消导入",
+            onCancel = { ui.cancel() },
         )
     }
 }

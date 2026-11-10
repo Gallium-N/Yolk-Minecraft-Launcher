@@ -65,6 +65,8 @@ tasks.withType<JavaExec>().configureEach {
         "ymcl.qa.autolaunch", "ymcl.qa.modrinth.instance", "ymcl.qa.modrinth.search",
         "ymcl.qa.modrinth.dialog", "ymcl.qa.modrinth.install",
         "ymcl.qa.modpack.file", "ymcl.qa.modpack.start",
+        "ymcl.qa.newinstance.version", "ymcl.qa.newinstance.loader",
+        "ymcl.qa.newinstance.start",
     ).forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }

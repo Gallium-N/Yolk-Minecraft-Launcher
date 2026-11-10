@@ -8,6 +8,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import java.io.File
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
 
 /**
  * Host-side implementation of [ModpackBackend]. Reuses the P3/P4 installers
@@ -98,44 +100,59 @@ class ModpackBackendImpl(
         }
         if (cancelled) return finish(cancelledSummary(id, plan, 0, 0L, 0, failures, warnings))
 
-        // Phase 2: download files[] into the INSTANCE dir. Reuse the P3 downloader
-        // so sha1 mismatch deletes .part, redownloads once, then joins the failure list.
+        // Phase 2: download files[] into the INSTANCE dir with 8 workers, reusing
+        // the exact P3 GameDownloader (sha1, one redownload, .part, failure list)
+        // and its concurrency semantics. HttpDownloadTransport params untouched.
         val downloader = GameDownloader(transport, fs, log)
         activeDownloader = downloader
+        val unverified = concrete.count { it.sha1 == null }
+        val parts = concrete.map { "versions/$id/${it.path}" }
+        val progressLock = Any()
         var doneFiles = 0
         var doneBytes = 0L
-        var unverified = 0
-        val parts = mutableListOf<String>()
-        for (f in concrete) {
-            if (cancelled) {
-                downloader.cancel()
-                break
+        val pool = Executors.newFixedThreadPool(8)
+        val results = try {
+            val futures = concrete.map { f ->
+                pool.submit(Callable {
+                    if (cancelled) return@Callable null
+                    val rel = "versions/$id/${f.path}"
+                    try {
+                        val spec = DownloadSpec(
+                            relativePath = rel,
+                            candidates = f.downloads.flatMap { source.modpackFile(it) }
+                                .map { CandidateUrl(it, "modpack") },
+                            expectedSha1 = f.sha1,
+                            expectedSize = if (f.size > 0) f.size else null,
+                            scope = DownloadScope.INSTANCE,
+                        )
+                        val outcome = downloader.download(spec)
+                        val at = System.currentTimeMillis()
+                        synchronized(progressLock) {
+                            doneFiles++
+                            doneBytes += outcome.bytes
+                            log("IMPORT file $doneFiles/${concrete.size} $rel <- ${outcome.sourceId} " +
+                                "${outcome.bytes}B at $at")
+                            onProgress(
+                                ImportProgress(
+                                    "下载模组与资源", doneFiles, concrete.size, doneBytes, plan.totalBytes, f.path,
+                                ),
+                            )
+                        }
+                        null
+                    } catch (e: DownloadCancelledException) {
+                        null
+                    } catch (e: Exception) {
+                        "$rel：${e.message}"
+                    }
+                })
             }
-            val rel = "versions/$id/${f.path}"
-            parts += rel
-            if (f.sha1 == null) unverified++
-            try {
-                val spec = DownloadSpec(
-                    relativePath = rel,
-                    candidates = f.downloads.flatMap { source.modpackFile(it) }
-                        .map { CandidateUrl(it, "modpack") },
-                    expectedSha1 = f.sha1,
-                    expectedSize = if (f.size > 0) f.size else null,
-                    scope = DownloadScope.INSTANCE,
-                )
-                val outcome = downloader.download(spec)
-                doneFiles++
-                doneBytes += outcome.bytes
-                onProgress(
-                    ImportProgress("下载模组与资源", doneFiles, concrete.size, doneBytes, plan.totalBytes, f.path),
-                )
-            } catch (e: DownloadCancelledException) {
-                break
-            } catch (e: Exception) {
-                val msg = "$rel：${e.message}"
-                log("IMPORT ERROR: $msg")
-                failures += msg
-            }
+            futures.map { it.get() }
+        } finally {
+            pool.shutdown()
+        }
+        results.filterNotNull().forEach { msg ->
+            log("IMPORT ERROR: $msg")
+            failures += msg
         }
         if (cancelled) {
             // Stop downloads, clean every .part, but KEEP the extracted directory.

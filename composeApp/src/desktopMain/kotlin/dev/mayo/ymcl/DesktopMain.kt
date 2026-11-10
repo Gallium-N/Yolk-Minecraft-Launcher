@@ -14,6 +14,8 @@ import dev.mayo.ymcl.app.ModpackBackendImpl
 import dev.mayo.ymcl.app.ModpackUiState
 import dev.mayo.ymcl.app.ModrinthClient
 import dev.mayo.ymcl.app.ModrinthService
+import dev.mayo.ymcl.app.NewInstanceBackendImpl
+import dev.mayo.ymcl.domain.LoaderKind
 import dev.mayo.ymcl.engine.HmclEngine
 import dev.mayo.ymcl.platform.FileInstanceRepository
 import dev.mayo.ymcl.platform.FileMetaStore
@@ -61,6 +63,7 @@ fun main() = application {
     // network calls except the pinned Fabric profile when it is not cached yet.
     val meta = MetaRepository(appRoot, source, FileMetaStore(), HttpMetaFetcher()) { 0L }
     val packFs = NativeDownloadFileSystem(gameRoot)
+    val loaderProcess = dev.mayo.ymcl.app.DesktopLoaderProcess(::println)
     val modpack = ModpackBackendImpl(
         gameRoot = gameRoot,
         source = source,
@@ -71,6 +74,15 @@ fun main() = application {
         cfFetcher = HttpCfFetcher(::println),
         apiKey = { settings.curseForgeApiKey() },
         proxyEnabled = { settings.allowCurseToolsProxy() },
+        log = ::println,
+        process = loaderProcess,
+    )
+    val newInstance = NewInstanceBackendImpl(
+        gameRoot = gameRoot,
+        source = source,
+        meta = meta,
+        transport = transport,
+        process = loaderProcess,
         log = ::println,
     )
 
@@ -83,6 +95,7 @@ fun main() = application {
             isolationEnabled = isolationEnabled,
             modrinth = modrinthService,
             modpack = modpack,
+            newInstance = newInstance,
             initialCurseForgeApiKey = settings.curseForgeApiKey(),
             initialAllowCurseToolsProxy = settings.allowCurseToolsProxy(),
             persistModpackSettings = { key, proxy -> settings.saveModpackSettings(key, proxy) },
@@ -98,6 +111,9 @@ fun main() = application {
     val qaInstall = System.getProperty("ymcl.qa.modrinth.install")
     val qaPackFile = System.getProperty("ymcl.qa.modpack.file")
     val qaPackStart = System.getProperty("ymcl.qa.modpack.start") == "1"
+    val qaNewVersion = System.getProperty("ymcl.qa.newinstance.version")
+    val qaNewLoader = System.getProperty("ymcl.qa.newinstance.loader")
+    val qaNewStart = System.getProperty("ymcl.qa.newinstance.start") == "1"
 
     // Do not pin the size through WindowState: a tiling compositor may map the
     // window larger first and re-applying a size would draw only in the corner.
@@ -190,6 +206,27 @@ fun main() = application {
                 }
                 delay(400)
                 if (state.modpackUi.stage == ModpackUiState.Stage.CONFIRM) state.modpackUi.start()
+            }
+        }
+        // QA-only: drive the new-instance wizard for the four acceptance screenshots.
+        LaunchedEffect(qaNewVersion, qaNewLoader, qaNewStart) {
+            if (qaNewVersion == null) return@LaunchedEffect
+            state.navigate(AppPage.NEW_INSTANCE)
+            withTimeoutOrNull(60_000) {
+                while (state.newInstanceUi.loadingVersions || state.newInstanceUi.versions.isEmpty()) delay(100)
+            }
+            delay(300)
+            val v = state.newInstanceUi.versions.firstOrNull { it.id == qaNewVersion } ?: return@LaunchedEffect
+            state.newInstanceUi.selectVersion(v)
+            if (qaNewLoader != null) {
+                state.newInstanceUi.selectLoader(LoaderKind.fromId(qaNewLoader) ?: LoaderKind.VANILLA)
+                withTimeoutOrNull(60_000) { while (state.newInstanceUi.loadingLoaders) delay(100) }
+                delay(300)
+            }
+            if (qaNewStart) {
+                state.newInstanceUi.nextToName()
+                delay(300)
+                state.newInstanceUi.start()
             }
         }
         YmclApp(state = state)

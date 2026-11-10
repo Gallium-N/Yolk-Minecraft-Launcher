@@ -421,4 +421,33 @@ class P3NoDebtTest {
         assertEquals("", extra["\${auth_xuid}"])
         assertEquals(2, extra.size)
     }
+
+    // ---------- F: 8-way concurrent downloads ----------
+
+    @Test
+    fun `eight downloads proceed concurrently through one downloader`() {
+        val fs = MemFs()
+        val barrier = java.util.concurrent.CyclicBarrier(8)
+        val transport = DownloadTransport { url, _ ->
+            // All 8 must arrive; otherwise this times out and the downloads fail.
+            barrier.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            DownloadPayload(200, url, null, 4L, "jar!".toByteArray())
+        }
+        val downloader = GameDownloader(transport, fs) { }
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
+        val futures = (1..8).map { i ->
+            pool.submit(java.util.concurrent.Callable {
+                downloader.download(
+                    dev.mayo.ymcl.app.DownloadSpec(
+                        "lib/f$i.jar",
+                        listOf(dev.mayo.ymcl.app.CandidateUrl("http://fixture/f$i.jar", "fake")),
+                    ),
+                )
+            })
+        }
+        val outcomes = futures.map { it.get() }
+        pool.shutdown()
+        assertEquals(8, outcomes.size)
+        assertEquals(8, fs.files.keys.count { it.startsWith("lib/f") && it.endsWith(".jar") })
+    }
 }

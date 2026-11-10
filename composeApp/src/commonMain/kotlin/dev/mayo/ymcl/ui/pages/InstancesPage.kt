@@ -105,6 +105,12 @@ fun InstancesPage(state: AppState) {
                     width = 128.dp,
                     onClick = { state.navigate(AppPage.IMPORT) },
                 )
+                Spacer(Modifier.width(12.dp))
+                OutlinedPillButton(
+                    text = "新建实例",
+                    width = 120.dp,
+                    onClick = { state.navigate(AppPage.NEW_INSTANCE) },
+                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -123,7 +129,7 @@ fun InstancesPage(state: AppState) {
             }
 
             if (state.instances.isEmpty()) {
-                EmptyInstances(onGetContent = { state.navigate(AppPage.GET_CONTENT) })
+                EmptyInstances(onGetContent = { state.navigate(AppPage.NEW_INSTANCE) })
             } else {
                 Column(
                     modifier = Modifier
@@ -207,7 +213,7 @@ private fun EmptyInstances(onGetContent: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "在「获取内容」里安装一个游戏版本，实例会出现在这里。",
+                text = "点「新建实例」安装一个游戏版本，或导入整合包，实例会出现在这里。",
                 fontSize = 13.sp,
                 color = colors.onSurfaceVariant,
             )
