@@ -32,6 +32,9 @@ class NativeDownloadFileSystem(private val gameDir: String) : DownloadFileSystem
 
     override fun readAll(relativePath: String): ByteArray = file(relativePath).readBytes()
 
+    override fun listDirs(relativePath: String): List<String> =
+        file(relativePath).listFiles { f -> f.isDirectory }?.map { it.name }?.sorted() ?: emptyList()
+
     override fun writeNew(relativePath: String, data: ByteArray) {
         val f = file(relativePath)
         f.parentFile?.mkdirs()

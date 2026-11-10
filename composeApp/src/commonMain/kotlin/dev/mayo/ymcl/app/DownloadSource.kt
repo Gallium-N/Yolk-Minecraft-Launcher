@@ -11,6 +11,8 @@ private const val FABRIC_MAVEN = "https://maven.fabricmc.net"
 private const val FABRIC_META = "https://meta.fabricmc.net"
 private const val FORGE_MAVEN = "https://maven.minecraftforge.net"
 private const val NEOFORGE_MAVEN = "https://maven.neoforged.net"
+private const val QUILT_META = "https://meta.quiltmc.org"
+private const val QUILT_MAVEN = "https://maven.quiltmc.org"
 private const val MODRINTH_API = "https://api.modrinth.com/v2"
 private const val CURSEFORGE_API = "https://api.curseforge.com"
 private const val CURSE_TOOLS = "https://api.curse.tools"
@@ -85,6 +87,39 @@ interface DownloadSource {
 
     /** Generic passthrough for pack file URLs (mrpack downloads[] / resolved CF urls). */
     fun modpackFile(url: String): List<String> = listOf(url)
+
+    // ---- P3 v2: Quilt / Forge / NeoForge loaders. Single candidate each. ----
+    /** Quilt meta v3 loader enumeration for one MC version. */
+    fun quiltLoaderMetadata(mcVersion: String): List<String> =
+        listOf("$QUILT_META/v3/versions/loader/${percentEncode(mcVersion)}")
+
+    /** Quilt meta v3 finished profile json. */
+    fun quiltProfile(mcVersion: String, loaderVersion: String): List<String> =
+        listOf("$QUILT_META/v3/versions/loader/${percentEncode(mcVersion)}/${percentEncode(loaderVersion)}/profile/json")
+
+    /** Forge installer jar: forge-<mc>-<forge>-installer.jar (classifier "installer"). */
+    fun forgeInstaller(mcVersion: String, forgeVersion: String): List<String> {
+        val v = "$mcVersion-$forgeVersion"
+        val path = "net/minecraftforge/forge/$v/forge-$v-installer.jar"
+        return listOf("$BMCLAPI/maven/$path", "$FORGE_MAVEN/$path")
+    }
+
+    /** NeoForge installer jar under maven.neoforged.net/releases. */
+    fun neoforgeInstaller(version: String): List<String> {
+        val path = "net/neoforged/neoforge/$version/neoforge-$version-installer.jar"
+        return listOf("$NEOFORGE_MAVEN/releases/$path", "$BMCLAPI/maven/$path")
+    }
+
+    /** maven-metadata.xml for Forge / NeoForge version pickers (wizard step 2). */
+    fun forgeVersionMetadata(): List<String> =
+        listOf("$FORGE_MAVEN/net/minecraftforge/forge/maven-metadata.xml")
+
+    fun neoforgeVersionMetadata(): List<String> =
+        listOf("$NEOFORGE_MAVEN/releases/net/neoforged/neoforge/maven-metadata.xml")
+
+    /** NeoForge reachability probe target (the official source is often blocked). */
+    fun neoforgeProbeUrl(): String =
+        "$NEOFORGE_MAVEN/releases/net/neoforged/neoforge/maven-metadata.xml"
 }
 
 /** Percent-encode an arbitrary UTF-8 string without java.net (commonMain safe). */
@@ -164,7 +199,10 @@ object BmclapiDownloadSource : DownloadSource {
         ext: String,
     ): List<String> {
         val path = mavenPath(group, artifact, version, classifier, ext)
-        return listOf("$BMCLAPI/maven/$path", "$FABRIC_MAVEN/$path", "$FORGE_MAVEN/$path")
+        return listOf(
+            "$BMCLAPI/maven/$path", "$FABRIC_MAVEN/$path", "$FORGE_MAVEN/$path",
+            "$QUILT_MAVEN/repository/release/$path",
+        )
     }
 
     override fun fabricLoaderMetadata(mcVersion: String): List<String> = listOf(
@@ -253,6 +291,13 @@ object UnreachableDownloadSource : DownloadSource {
     override fun cfProxyFile(projectId: String, fileId: String): List<String> = dead()
     override fun cfCdnFile(fileId: String, filename: String): List<String> = dead()
     override fun modpackFile(url: String): List<String> = dead()
+    override fun quiltLoaderMetadata(mcVersion: String): List<String> = dead()
+    override fun quiltProfile(mcVersion: String, loaderVersion: String): List<String> = dead()
+    override fun forgeInstaller(mcVersion: String, forgeVersion: String): List<String> = dead()
+    override fun neoforgeInstaller(version: String): List<String> = dead()
+    override fun forgeVersionMetadata(): List<String> = dead()
+    override fun neoforgeVersionMetadata(): List<String> = dead()
+    override fun neoforgeProbeUrl(): String = "$UNREACHABLE/unreachable"
 }
 
 fun defaultDownloadSource(preferMirror: Boolean = true): DownloadSource =

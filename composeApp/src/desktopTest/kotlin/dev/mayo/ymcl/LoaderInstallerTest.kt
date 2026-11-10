@@ -83,7 +83,7 @@ class LoaderInstallerTest {
         }
         val meta = MetaRepository("/root", source, store, fetcher, { 0L })
         val downloader = GameDownloader({ _, _ -> error("no network in unit test") }, fs) { }
-        return Triple(LoaderInstaller(source, downloader, fs, meta) { }, fs, source)
+        return Triple(LoaderInstaller(source, downloader, fs, meta, log = { }), fs, source)
     }
 
     private fun manifest(): VersionManifest = VersionManifest(listOf(VersionEntry("1.20.1")))

@@ -57,7 +57,7 @@ fun main() {
     val manifest = meta.loadManifest()
     val fs = NativeDownloadFileSystem(gameDir)
     val downloader = GameDownloader(HttpDownloadTransport(), fs, ::println)
-    val installer = LoaderInstaller(source, downloader, fs, meta, ::println)
+    val installer = LoaderInstaller(source, downloader, fs, meta, log = ::println)
 
     when (mode) {
         "fabric" -> {

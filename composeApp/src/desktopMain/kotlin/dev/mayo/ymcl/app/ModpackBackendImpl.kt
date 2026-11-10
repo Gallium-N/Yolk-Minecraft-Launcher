@@ -4,7 +4,6 @@ import dev.mayo.ymcl.domain.InstanceId
 import dev.mayo.ymcl.platform.PathUtil
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
@@ -30,6 +29,7 @@ class ModpackBackendImpl(
     private val apiKey: () -> String?,
     private val proxyEnabled: () -> Boolean,
     private val log: (String) -> Unit = ::println,
+    private val process: LoaderProcess = DesktopLoaderProcess(log),
 ) : ModpackBackend {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
 
@@ -222,54 +222,26 @@ class ModpackBackendImpl(
             log("IMPORT base: 复用已存在的原版 versions/$parent")
         }
 
-        when (plan.loaderKind.lowercase()) {
-            "fabric", "quilt" -> {
-                val installer = LoaderInstaller(source, GameDownloader(transport, fs, log), fs, meta, log)
-                val manifest = meta.loadManifest().value
-                val pinned = plan.loaderVersion?.takeIf { plan.loaderKind.lowercase() == "fabric" }
-                val result = if (!pinned.isNullOrBlank()) {
-                    try {
-                        installer.installFabric(mc, manifest, id, parent, pinned)
-                    } catch (e: Exception) {
-                        log("IMPORT base: 指定加载器 $pinned 不可用（${e.message}），回退到最新 Fabric")
-                        warnings += "整合包指定的 Fabric $pinned 不可用，已回退到最新 Fabric 加载器"
-                        installer.installFabric(mc, manifest, id, parent)
-                    }
-                } else {
-                    if (plan.loaderKind.lowercase() == "quilt") {
-                        warnings += "Quilt 加载器自动安装暂未支持，已按 Fabric 处理"
-                    }
-                    installer.installFabric(mc, manifest, id, parent)
-                }
-                log(
-                    "IMPORT base: fabric loader=${result.loaderVersion} libs=${result.libraryCount} " +
-                        "downloaded=${result.downloaded} skipped=${result.skipped}",
-                )
-            }
-
-            "forge", "neoforge" -> {
-                writeInheritedVersionJson(id, parent)
-                val w = "${plan.loaderKind} 加载器自动安装暂未支持（P3 只实现了 Fabric）；" +
-                    "实例已创建，但需手动安装该加载器后才能启动。"
-                warnings += w
-                log("IMPORT base WARN: $w")
-            }
-
-            else -> {
-                writeInheritedVersionJson(id, parent)
-                log("IMPORT base: 原版整合包（无模组加载器）")
-            }
+        val kind = dev.mayo.ymcl.domain.LoaderKind.fromId(plan.loaderKind)
+            ?: dev.mayo.ymcl.domain.LoaderKind.VANILLA
+        val installer = LoaderInstaller(
+            source, GameDownloader(transport, fs, log), fs, meta, log, process, gameRoot,
+        )
+        val manifest = meta.loadManifest().value
+        val result = try {
+            installer.install(kind, mc, plan.loaderVersion, id, parent, manifest)
+        } catch (e: Exception) {
+            // A loader installer can be blocked by network; keep the instance
+            // usable and report the failure instead of pretending success.
+            val w = "${kind.displayName} 加载器自动安装失败：${e.message}（实例按原版创建）"
+            warnings += w
+            log("IMPORT base WARN: $w")
+            installer.installVanilla(mc, id, parent)
         }
-    }
-
-    /** A version json that inherits the vanilla parent (used for Forge/vanilla packs). */
-    private fun writeInheritedVersionJson(id: String, parent: String) {
-        val parentText = String(fs.readAll("versions/$parent/$parent.json"), Charsets.UTF_8)
-        val obj = json.parseToJsonElement(parentText).jsonObject.toMutableMap()
-        obj["id"] = JsonPrimitive(id)
-        obj["inheritsFrom"] = JsonPrimitive(parent)
-        obj["jar"] = JsonPrimitive(parent)
-        fs.writeNew("versions/$id/$id.json", JsonObject(obj).toString().toByteArray(Charsets.UTF_8))
+        log(
+            "IMPORT base: ${kind.id} loader=${result.loaderVersion} libs=${result.libraryCount} " +
+                "downloaded=${result.downloaded} skipped=${result.skipped}",
+        )
     }
 
     private fun writeInstanceJson(plan: ModpackPlan, id: String) {

@@ -42,6 +42,9 @@ class MetaRepository(
 
     val manifestPath: String get() = PathUtil.join(appRoot, "data", "meta", "version_manifest_v2.json")
 
+    /** Raw GET through the injected fetcher (loader meta APIs such as Quilt). */
+    fun fetch(candidates: List<String>): String = fetcher.fetch(candidates)
+
     fun versionPath(id: String): String =
         PathUtil.join(appRoot, "data", "meta", "versions", "$id.json")
 

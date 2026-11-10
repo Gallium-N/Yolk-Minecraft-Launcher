@@ -123,7 +123,7 @@ fun main() {
     val fs = NativeDownloadFileSystem(gameRoot)
     val downloader = GameDownloader(mirror, fs) { }
     val installer = GameInstaller(source, downloader, fs) { }
-    val loaderInstaller = LoaderInstaller(source, downloader, fs, meta) { }
+    val loaderInstaller = LoaderInstaller(source, downloader, fs, meta, log = { })
 
     val existing = mutableSetOf<String>()
     val steps = listOf(

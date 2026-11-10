@@ -78,6 +78,9 @@ interface DownloadFileSystem {
     fun move(from: String, to: String)
     fun unpackNatives(jarBytes: ByteArray, destDir: String)
 
+    /** Child directory names of [relativePath]; empty when the FS cannot list. */
+    fun listDirs(relativePath: String): List<String> = emptyList()
+
     /**
      * Materializes a verified shared file into an instance-owned path. The
      * platform actual hard-links (with copy fallback on EXDEV); this default is a
