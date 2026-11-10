@@ -63,6 +63,8 @@ class HmclEngine(
     private val exitCodes = ConcurrentHashMap<String, Int>()
     private val lastLaunchTimes = ConcurrentHashMap<String, Long>()
     private val historyFile = File(File(appRoot, "data"), "launch-history.json")
+    /** 32-hex client id, fixed for this JVM session. */
+    private val sessionClientId: String = UUID.randomUUID().toString().replace("-", "")
 
     init {
         loadHistory()
@@ -126,12 +128,21 @@ class HmclEngine(
                 null
             }
             val required = requiredJavaMajor(version)
-            if (request.java.major in 1 until required) {
+            val javaOk = if (dev.mayo.ymcl.app.JavaMatrix.strict(version)) {
+                request.java.major == required
+            } else {
+                request.java.major >= required
+            }
+            if (!javaOk) {
                 return LaunchResult.Failed(
-                    "Java 版本不匹配：$version 需要 Java $required 或更高，当前是 " +
-                        "${request.java.vendor} ${request.java.version}。请到设置 → 游戏切换运行时。",
+                    "Java 版本不匹配：$version 需要 Java $required" +
+                        (if (dev.mayo.ymcl.app.JavaMatrix.strict(version)) "" else " 或更高") +
+                        "，当前是 ${request.java.vendor} ${request.java.version}。请到设置 → 游戏切换运行时。",
                 )
             }
+            val javaLine = "YMCL java selected path=${request.java.path} major=${request.java.major} " +
+                "required=$required mc=$version"
+            println(javaLine)
 
             val javaInfo = JavaInfo(Platform.CURRENT_PLATFORM, request.java.version, request.java.vendor)
             val javaRuntime = HmclJavaRuntime.of(Path.of(request.java.path), javaInfo, false)
@@ -169,6 +180,8 @@ class HmclEngine(
             logs.tryEmit(launchLine)
             paths.notice?.let { logs.tryEmit("YMCL layout notice: $it") }
             virtualAssetsDir?.let { logs.tryEmit("YMCL virtual assets: --assetsDir $it") }
+            logs.tryEmit(javaLine)
+            logs.tryEmit("YMCL macros resolved clientid=$sessionClientId auth_xuid=(empty)")
             val gameInstance = HmclGameInstance(
                 repositoryRoot.toPath(), runDirectory.toPath(), resolved, raw, version,
                 assetsDirOverride = virtualAssetsDir,
@@ -208,7 +221,9 @@ class HmclEngine(
                 }
             }
 
-            val launcher = DefaultLauncher(gameInstance, resolved, auth, options, listener, true)
+            val launcher = YmclLauncher(
+                gameInstance, resolved, auth, options, listener, true, sessionClientId,
+            )
             val managed = launcher.launch()
             running[request.instanceId] = managed.process
             runningIds += request.instanceId
@@ -382,18 +397,8 @@ class HmclEngine(
         return Loader(kind, version)
     }
 
-    private fun requiredJavaMajor(mcVersion: String): Int {
-        val parts = mcVersion.split('.').mapNotNull { it.toIntOrNull() }
-        val major = parts.getOrNull(0) ?: return 8
-        val minor = parts.getOrNull(1) ?: 0
-        val patch = parts.getOrNull(2) ?: 0
-        return when {
-            major < 1 -> 8
-            major == 1 && minor <= 16 -> 8
-            major == 1 && (minor < 20 || (minor == 20 && patch <= 4)) -> 17
-            else -> 21
-        }
-    }
+    private fun requiredJavaMajor(mcVersion: String): Int =
+        dev.mayo.ymcl.app.JavaMatrix.requiredMajor(mcVersion)
 
     /** Reads a boolean flag from an instance's portable instance.json. */
     private fun readInstanceFlag(gameDir: String, instanceId: String, key: String): Boolean {
@@ -437,6 +442,23 @@ class HmclEngine(
         } catch (e: Exception) {
             println("YMCL history: ${e.message}")
         }
+    }
+}
+
+/** Adds the two macros HMCLCore does not define, so no unresolved `${...}` reaches the game. */
+private class YmclLauncher(
+    instance: GameInstance,
+    manifest: GameInstanceManifest,
+    auth: AuthInfo,
+    options: LaunchOptions,
+    listener: ProcessListener,
+    daemon: Boolean,
+    private val clientId: String,
+) : DefaultLauncher(instance, manifest, auth, options, listener, daemon) {
+    override fun getConfigurations(): MutableMap<String, String> {
+        val map = super.getConfigurations()
+        map.putAll(dev.mayo.ymcl.app.LaunchMacros.extras(clientId))
+        return map
     }
 }
 

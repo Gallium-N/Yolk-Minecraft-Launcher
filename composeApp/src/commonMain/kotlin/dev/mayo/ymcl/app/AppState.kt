@@ -144,6 +144,10 @@ class AppState(
     )
         private set
 
+    /** True once the user explicitly picks a Java; the matrix must not override it. */
+    var javaManuallySelected by mutableStateOf(false)
+        private set
+
     var xmxMb by mutableStateOf(4096)
 
     var selectedInstanceId by mutableStateOf<String?>(null)
@@ -241,6 +245,7 @@ class AppState(
 
     fun selectJava(path: String?) {
         selectedJavaPath = path
+        javaManuallySelected = true
     }
 
     fun changeGameDirectory(path: String) {
@@ -272,7 +277,19 @@ class AppState(
         val target = id ?: selectedInstanceId ?: return
         if (activeInstanceId != null || launchPending) return
 
-        val java = selectedJava
+        val mcVersion = instances.firstOrNull { it.id == target }?.mcVersion ?: target
+        val java = if (javaManuallySelected) {
+            selectedJava
+        } else {
+            val selection = JavaMatrix.select(mcVersion, javaRuntimes)
+            if (selection.java == null) {
+                launchError = JavaMatrix.missingMessage(selection)
+                return
+            }
+            println("[UI ${nowMillis()}] Java matrix: mc=$mcVersion need=${selection.required} " +
+                "strict=${selection.strict} -> ${selection.java!!.path} (Java ${selection.java!!.major})")
+            selection.java
+        }
         if (java == null) {
             launchError = "没有可用的 Java 运行时。请检查设置 → 游戏里的 Java 列表。"
             return

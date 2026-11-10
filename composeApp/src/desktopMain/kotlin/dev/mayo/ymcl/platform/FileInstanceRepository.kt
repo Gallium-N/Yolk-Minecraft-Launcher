@@ -45,7 +45,11 @@ class FileInstanceRepository(
         val errors = mutableListOf<String>()
         for (dir in dirs) {
             try {
-                items += parseOne(dir, isolated)
+                val portable = readJson(File(dir, "instance.json"))
+                // Base instances are shared scaffolding, never shown/counted.
+                // The directory is kept (other instances inherit its jar/libs).
+                if (isBase(dir, portable)) continue
+                items += parseOne(dir, isolated, portable)
             } catch (e: Exception) {
                 errors += "${dir.name}: ${e.message ?: e.javaClass.simpleName}"
             }
@@ -53,9 +57,31 @@ class FileInstanceRepository(
         return InstanceScan(items, errors.size, errors)
     }
 
-    private fun parseOne(dir: File, isolated: Boolean): InstanceSummary {
+    /**
+     * A base is either explicitly tagged `role: base`, or a pure-version dir
+     * with an empty mods/ and no meaningful display name (P5-era bases).
+     */
+    private fun isBase(dir: File, portable: JsonObject?): Boolean {
+        if (portable?.str("role").equals("base", ignoreCase = true)) return true
+        if (!MC_VERSION.matches(dir.name)) return false
+        if (portable?.str("packSource") != null) return false
+        val mods = File(dir, "mods").listFiles { f -> f.isFile && f.extension.equals("jar", true) }
+            ?.isNotEmpty() == true
+        if (mods) return false
+        val name = portable?.str("displayName")
+        return name == null || name == dir.name
+    }
+
+    /** Counts jar files in the instance mods dir (or root mods when non-isolated). */
+    private fun modCount(dir: File, isolated: Boolean): Int {
+        val modsDir = if (isolated) File(dir, "mods") else File(PathUtil.toNative(gameRoot), "mods")
+        return modsDir.listFiles { f ->
+            f.isFile && f.extension.equals("jar", true) && !f.name.endsWith(".disabled", true)
+        }?.size ?: 0
+    }
+
+    private fun parseOne(dir: File, isolated: Boolean, portable: JsonObject?): InstanceSummary {
         val id = dir.name
-        val portable = readJson(File(dir, "instance.json"))
         val displayName = portable?.str("displayName")?.takeIf { it.isNotBlank() } ?: id
 
         // A version json is required. A malformed one throws here and is caught
@@ -75,6 +101,7 @@ class FileInstanceRepository(
             loaderVersion = loader.version,
             isolated = isolated,
             path = PathUtil.join(gameRoot, "versions", id),
+            modCount = modCount(dir, isolated),
         )
     }
 

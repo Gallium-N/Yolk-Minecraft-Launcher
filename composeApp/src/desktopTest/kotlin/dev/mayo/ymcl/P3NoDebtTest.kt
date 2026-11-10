@@ -286,4 +286,139 @@ class P3NoDebtTest {
         val idx = """{"objects":{"minecraft/sounds/a.ogg":{"hash":"aabb"}}}"""
         org.junit.Assert.assertNull(dev.mayo.ymcl.app.LegacyAssets.plan(idx, "1.20.1"))
     }
+
+    // ---------- C: Java matrix ----------
+
+    private fun java(major: Int) = dev.mayo.ymcl.domain.JavaRuntime(
+        id = "j$major", vendor = "Test", major = major, version = "$major.0",
+        arch = "x64", os = "linux", path = "/java/$major/bin/java", source = "detected",
+    )
+
+    @Test
+    fun `java matrix boundaries 1 16 to 1 20 5`() {
+        val m = dev.mayo.ymcl.app.JavaMatrix
+        assertEquals(8, m.requiredMajor("1.16.5"))
+        assertEquals(8, m.requiredMajor("1.12.2"))
+        assertEquals(17, m.requiredMajor("1.17"))
+        assertEquals(17, m.requiredMajor("1.20.1"))
+        assertEquals(17, m.requiredMajor("1.20.4"))
+        assertEquals(21, m.requiredMajor("1.20.5"))
+        assertEquals(21, m.requiredMajor("1.21.1"))
+        assertEquals(21, m.requiredMajor("23w45a"))
+    }
+
+    @Test
+    fun `java matrix selects exact 8 for old mc and rejects when missing`() {
+        val m = dev.mayo.ymcl.app.JavaMatrix
+        val runtimes = listOf(java(8), java(17), java(21))
+        assertEquals(8, m.select("1.12.2", runtimes).java!!.major)
+        val missing = m.select("1.12.2", listOf(java(17), java(21)))
+        org.junit.Assert.assertNull(missing.java)
+        assertTrue(m.missingMessage(missing).contains("需要 Java 8，本机只有 17/21"))
+        assertEquals(21, m.select("1.20.1", runtimes).java!!.major)
+        assertEquals(21, m.select("1.21.1", runtimes).java!!.major)
+    }
+
+    // ---------- D: transport resume + bmclapi-hash skip ----------
+
+    @Test
+    fun `part with mismatched sha1 prefix is discarded and re downloaded`() {
+        val fs = MemFs()
+        val source = MemSource()
+        val logs = mutableListOf<String>()
+        val calls = mutableListOf<Long>()
+        val transport = DownloadTransport { url, rangeStart ->
+            calls += rangeStart
+            DownloadPayload(200, url, null, 3L, "abc".toByteArray())
+        }
+        val downloader = GameDownloader(transport, fs) { logs += it }
+        val probe = MemFs()
+        probe.files["x"] = "abc".toByteArray()
+        val goodSha1 = probe.sha1Of("x")
+        val spec = dev.mayo.ymcl.app.DownloadSpec(
+            "lib/x.jar", listOf(dev.mayo.ymcl.app.CandidateUrl("mirror/x.jar", "fake")),
+            expectedSha1 = goodSha1,
+        )
+        // A stale .part stamped with a DIFFERENT sha1 prefix.
+        fs.files["lib/x.jar.part"] = "old".toByteArray()
+        fs.files["lib/x.jar.part.meta"] = "size=3\nsha1Prefix=ffffffffffff\n".toByteArray(Charsets.UTF_8)
+        val outcome = downloader.download(spec)
+        assertEquals(0L, calls.first())
+        assertEquals(3L, outcome.bytes)
+        assertTrue(logs.any { it.contains("prefix mismatch") && it.contains("discard") })
+        assertFalse(fs.files.containsKey("lib/x.jar.part.meta"))
+    }
+
+    @Test
+    fun `second install hits skip local bmclapi hash`() {
+        val fs = MemFs()
+        val logs = mutableListOf<String>()
+        val transport = DownloadTransport { _, _ -> error("should not hit network on 2nd install") }
+        val downloader = GameDownloader(transport, fs) { logs += it }
+        val spec = dev.mayo.ymcl.app.DownloadSpec(
+            "lib/x.jar", listOf(dev.mayo.ymcl.app.CandidateUrl("mirror/x.jar", "fake")),
+            expectedSha1 = "aabbcc",
+        )
+        fs.files["lib/x.jar"] = "verified".toByteArray()
+        // expectedSha1 matches the pre-computed local sha1 of the fixture bytes.
+        val local = fs.sha1Of("lib/x.jar")
+        val outcome = downloader.download(spec.copy(expectedSha1 = local))
+        assertTrue(outcome.skipped)
+        assertTrue(logs.any { it.contains("skip(local, bmclapi-hash=$local)") })
+    }
+
+    // ---------- E: base role, modCount, macros ----------
+
+    @Test
+    fun `base role instances are filtered but dirs are kept`() {
+        val root = java.nio.file.Files.createTempDirectory("ymcl-base-").toFile()
+        try {
+            val versions = java.io.File(root, "versions")
+            java.io.File(versions, "1.20.1").mkdirs()
+            java.io.File(versions, "1.20.1/1.20.1.json").writeText("""{"id":"1.20.1"}""")
+            java.io.File(versions, "1.20.1/instance.json").writeText(
+                """{"schemaVersion":1,"displayName":"1.20.1","mcVersion":"1.20.1","role":"base"}""",
+            )
+            java.io.File(versions, "Real").mkdirs()
+            java.io.File(versions, "Real/Real.json").writeText("""{"id":"Real"}""")
+            java.io.File(versions, "Real/instance.json").writeText(
+                """{"schemaVersion":1,"displayName":"Real","mcVersion":"1.20.1"}""",
+            )
+            val repo = dev.mayo.ymcl.platform.FileInstanceRepository(root.absolutePath, true)
+            val scan = repo.scan()
+            assertEquals(1, scan.instances.size)
+            assertEquals("Real", scan.instances[0].id)
+            assertTrue(java.io.File(versions, "1.20.1").isDirectory) // not deleted
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `modCount counts only jar files and ignores disabled`() {
+        val root = java.nio.file.Files.createTempDirectory("ymcl-mods-").toFile()
+        try {
+            val instance = java.io.File(root, "versions/Real")
+            java.io.File(instance, "mods").mkdirs()
+            java.io.File(instance, "Real.json").writeText("""{"id":"Real"}""")
+            java.io.File(instance, "instance.json").writeText(
+                """{"schemaVersion":1,"displayName":"Real","mcVersion":"1.20.1"}""",
+            )
+            java.io.File(instance, "mods/a.jar").writeText("a")
+            java.io.File(instance, "mods/b.jar").writeText("b")
+            java.io.File(instance, "mods/c.jar.disabled").writeText("c")
+            java.io.File(instance, "mods/sub").mkdirs()
+            assertEquals(2, dev.mayo.ymcl.platform.FileInstanceRepository(root.absolutePath, true).list().single().modCount)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `launch macros are 32 hex and empty xuid`() {
+        val extra = dev.mayo.ymcl.app.LaunchMacros.extras("0123456789abcdef0123456789abcdef")
+        assertTrue(Regex("^[0-9a-f]{32}$").matches(extra["\${clientid}"]!!))
+        assertEquals("", extra["\${auth_xuid}"])
+        assertEquals(2, extra.size)
+    }
 }

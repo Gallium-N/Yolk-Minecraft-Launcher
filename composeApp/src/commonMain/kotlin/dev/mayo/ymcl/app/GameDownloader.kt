@@ -133,9 +133,23 @@ class GameDownloader(
         }
     }
 
+    private fun partMeta(part: String) = "$part.meta"
+
+    /** Deletes the .part AND its resume metadata together. */
+    private fun dropPart(part: String) {
+        fs.delete(part)
+        fs.delete(partMeta(part))
+    }
+
+    /** Persists the resume stamp: current byte count + expected sha1 prefix. */
+    private fun writePartMeta(part: String, spec: DownloadSpec) {
+        val prefix = spec.expectedSha1?.take(12) ?: "none"
+        fs.writeNew(partMeta(part), "size=${fs.size(part)}\nsha1Prefix=$prefix\n".toByteArray(Charsets.UTF_8))
+    }
+
     private fun checkCancelled(part: String) {
         if (cancelled) {
-            fs.delete(part)
+            dropPart(part)
             throw DownloadCancelledException()
         }
     }
@@ -164,7 +178,7 @@ class GameDownloader(
         // to the candidate's source so source-level degradation can accumulate.
         health.recordFailure(host, ordered.getOrNull(index)?.sourceId)
         errors += reason
-        fs.delete(part)
+        dropPart(part)
         logSwitch(target, ordered, index)
     }
 
@@ -179,8 +193,26 @@ class GameDownloader(
         ) {
             val bytes = fs.size(target)
             bump(bytes, target)
-            log("$target <- cached 0ms ${bytes}B")
+            // Proof that the local sha1 skip really fires on a second install.
+            log("$target <- skip(local, bmclapi-hash=${spec.expectedSha1 ?: fs.sha1Of(target)}) 0ms ${bytes}B")
             return DownloadOutcome(target, "cached", 0L, bytes, true, false, target)
+        }
+
+        // Cross-restart resume: a .part is only reused when its sha1 prefix
+        // still matches this spec; otherwise discard and start over.
+        val expectedPrefix = spec.expectedSha1?.take(12)
+        if (fs.exists(part) && fs.size(part) > 0L) {
+            val meta = runCatching { String(fs.readAll(partMeta(part)), Charsets.UTF_8) }.getOrNull()
+            val stampedPrefix = meta?.lineSequence()
+                ?.firstOrNull { it.startsWith("sha1Prefix=") }?.substringAfter('=')
+            val usable = meta == null || stampedPrefix == null || expectedPrefix == null ||
+                stampedPrefix == expectedPrefix
+            if (usable) {
+                log("$target resume from ${fs.size(part)} bytes")
+            } else {
+                log("$target .part sha1 prefix mismatch ($stampedPrefix != $expectedPrefix) -> discard")
+                dropPart(part)
+            }
         }
 
         val ordered = health.rank(spec.candidates)
@@ -191,7 +223,7 @@ class GameDownloader(
             for (attempt in 1..2) {
                 checkCancelled(part)
                 val rangeStart = if (fs.exists(part) && fs.size(part) > 0) fs.size(part) else 0L
-                if (rangeStart == 0L) fs.delete(part)
+                if (rangeStart == 0L) dropPart(part)
 
                 val payload = try {
                     transport.get(candidate.url, rangeStart)
@@ -218,7 +250,7 @@ class GameDownloader(
                     break
                 }
                 if (!payload.rangeHonored) {
-                    fs.delete(part)
+                    dropPart(part)
                     continue
                 }
 
@@ -230,23 +262,24 @@ class GameDownloader(
                 if (hashUsable && fs.exists(target) &&
                     fs.sha1Of(target).equals(hash, ignoreCase = true)
                 ) {
-                    fs.delete(part)
+                    dropPart(part)
                     val bytes = fs.size(target)
                     val elapsed = System.currentTimeMillis() - start
                     health.recordSuccess(host, candidate.sourceId)
                     bump(bytes, target)
-                    log("$target <- ${candidate.sourceId} ${elapsed}ms ${bytes}B (bmclapi-hash skip)")
+                    log("$target <- skip(local, bmclapi-hash=$hash) ${elapsed}ms ${bytes}B")
                     return DownloadOutcome(target, candidate.sourceId, elapsed, bytes, true, redownloaded, payload.finalUrl)
                 }
 
                 checkCancelled(part)
                 fs.append(part, payload.bytes)
+                writePartMeta(part, spec)
                 val actualSha1 = fs.sha1Of(part)
                 val actualSize = fs.size(part)
                 if (!verify(actualSha1, actualSize, spec)) {
                     errors += "$target#$attempt sha1 期望=${spec.expectedSha1} 实际=$actualSha1 " +
                         "size 期望=${spec.expectedSize} 实际=$actualSize"
-                    fs.delete(part)
+                    dropPart(part)
                     fs.delete(target)
                     if (attempt == 1) {
                         redownloaded = true
@@ -260,6 +293,7 @@ class GameDownloader(
                 }
 
                 fs.move(part, target)
+                fs.delete(partMeta(part))
                 if (spec.unpackNativesTo != null) {
                     fs.unpackNatives(fs.readAll(target), spec.unpackNativesTo)
                 }
@@ -279,7 +313,10 @@ class GameDownloader(
     }
 
     fun cleanupParts(paths: List<String>) {
-        paths.forEach { fs.delete("$it.part") }
+        paths.forEach {
+            fs.delete("$it.part")
+            fs.delete("$it.part.meta")
+        }
     }
 
     private fun verify(sha1: String, size: Long, spec: DownloadSpec): Boolean {

@@ -261,6 +261,9 @@ class GameInstaller(
                 put("displayName", instanceId)
                 put("mcVersion", mcVersion)
                 put("loader", buildJsonObject { put("kind", "vanilla") })
+                // A version dir named exactly after the MC version is the shared
+                // base other instances inherit from; hide it from the instance list.
+                if (instanceId == mcVersion) put("role", "base")
                 if (virtual) put("assetsVirtual", true)
             }.toString()
             fs.writeNew(portableRel, text.toByteArray(Charsets.UTF_8))
