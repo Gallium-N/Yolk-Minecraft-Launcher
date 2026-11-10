@@ -10,6 +10,7 @@ import dev.mayo.ymcl.domain.Loader
 import dev.mayo.ymcl.domain.LoaderKind
 import dev.mayo.ymcl.domain.ModEntry
 import dev.mayo.ymcl.platform.JavaRegistry
+import dev.mayo.ymcl.platform.PathUtil
 import dev.mayo.ymcl.platform.appDataDirectory
 import dev.mayo.ymcl.platform.detectJavaRuntimes
 import dev.mayo.ymcl.platform.nowMillis
@@ -119,6 +120,11 @@ class HmclEngine(
         return try {
             val (raw, resolved) = loadManifests(repositoryRoot.toPath(), request.instanceId)
             val version = request.mcVersion ?: findMcVersion(request.instanceId, resolved)
+            val virtualAssetsDir = if (readInstanceFlag(request.gameDir, request.instanceId, "assetsVirtual")) {
+                PathUtil.join(request.gameDir, "assets", "virtual", version)
+            } else {
+                null
+            }
             val required = requiredJavaMajor(version)
             if (request.java.major in 1 until required) {
                 return LaunchResult.Failed(
@@ -162,8 +168,10 @@ class HmclEngine(
             // Surface the resolved layout in the UI log stream too, not just stdout.
             logs.tryEmit(launchLine)
             paths.notice?.let { logs.tryEmit("YMCL layout notice: $it") }
+            virtualAssetsDir?.let { logs.tryEmit("YMCL virtual assets: --assetsDir $it") }
             val gameInstance = HmclGameInstance(
                 repositoryRoot.toPath(), runDirectory.toPath(), resolved, raw, version,
+                assetsDirOverride = virtualAssetsDir,
             )
 
             val finished = AtomicBoolean(false)
@@ -387,6 +395,18 @@ class HmclEngine(
         }
     }
 
+    /** Reads a boolean flag from an instance's portable instance.json. */
+    private fun readInstanceFlag(gameDir: String, instanceId: String, key: String): Boolean {
+        val path = File(gameDir, "versions/$instanceId/instance.json")
+        if (!path.isFile) return false
+        return try {
+            Json.parseToJsonElement(readTextAuto(path.absolutePath)).jsonObject[key]
+                ?.jsonPrimitive?.content?.toBooleanStrictOrNull() == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun safeName(value: String): String =
         value.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }
             .joinToString("")
@@ -426,6 +446,8 @@ private class HmclGameInstance(
     private val resolved: GameInstanceManifest,
     private val stored: GameInstanceManifest,
     private val mcVersion: String,
+    /** Legacy virtual assets dir; when set, `--assetsDir` points here. */
+    private val assetsDirOverride: String? = null,
 ) : GameInstance {
     // The layout resolves versions/ + assets/ + libraries/ from the shared root;
     // only the run directory is instance-scoped (or the root in shared mode).
@@ -465,10 +487,14 @@ private class HmclGameInstance(
         JsonUtils.fromJsonFile(layout.getAssetIndexFile(assetId), AssetIndex::class.java)
             ?: throw IOException("Asset index missing: $assetId")
 
-    override fun getActualAssetDirectory(assetId: String): Path = layout.getAssetDirectory()
+    override fun getActualAssetDirectory(assetId: String): Path =
+        assetsDirOverride?.let { Path.of(PathUtil.toNative(it)) } ?: layout.getAssetDirectory()
 
     override fun getAssetObject(assetId: String, name: String): Optional<Path> {
         val objectInfo = getAssetIndex(assetId).objects[name] ?: return Optional.empty()
-        return Optional.of(layout.getAssetObject(objectInfo))
+        val virtual: Path? = assetsDirOverride
+            ?.let { dir -> Path.of(PathUtil.toNative(dir), name) }
+            ?.takeIf { Files.isRegularFile(it) }
+        return Optional.of(virtual ?: layout.getAssetObject(objectInfo))
     }
 }

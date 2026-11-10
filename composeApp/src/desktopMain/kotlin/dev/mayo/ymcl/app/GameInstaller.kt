@@ -187,7 +187,9 @@ class GameInstaller(
             fs.linkOrCopy(sharedJarRel, instanceJarRel)
             log("client jar linked: $sharedJarRel -> $instanceJarRel")
         }
-        writeInstanceMetadata(mcVersion, instanceId)
+        // ---- Phase D: legacy virtual / map_to_resources assets (once, idempotent) ----
+        val virtual = virtualizeLegacyAssets(mcVersion, indexRel)
+        writeInstanceMetadata(mcVersion, instanceId, virtual)
 
         val bytes = outcomes.sumOf { it.bytes }
         val downloadedBytes = outcomes.filter { !it.skipped }.sumOf { it.bytes }
@@ -212,7 +214,45 @@ class GameInstaller(
         return summary
     }
 
-    private fun writeInstanceMetadata(mcVersion: String, instanceId: String) {
+    /**
+     * Copies asset objects into `assets/virtual/<mcVersion>/<original name>` for
+     * 1.6–1.12 (and into `<gameRoot>/resources/` when map_to_resources applies).
+     * Idempotent: already-present targets are left untouched. Runs only at
+     * install time; `instance.json` records `assetsVirtual=true` for launch.
+     */
+    private fun virtualizeLegacyAssets(mcVersion: String, indexRel: String): Boolean {
+        if (!fs.exists(indexRel)) return false
+        val plan = try {
+            LegacyAssets.plan(String(fs.readAll(indexRel), Charsets.UTF_8), mcVersion)
+        } catch (e: Exception) {
+            log("virtual assets: index unreadable: ${e.message}")
+            return false
+        } ?: return false
+        var copied = 0
+        var missing = 0
+        plan.copies.forEach { (from, to) ->
+            if (!fs.exists(from)) {
+                missing++
+                return@forEach
+            }
+            if (!fs.exists(to)) {
+                fs.writeNew(to, fs.readAll(from))
+                copied++
+            }
+        }
+        if (plan.mapToResources) {
+            plan.resourceCopies.forEach { (from, to) ->
+                if (fs.exists(from) && !fs.exists(to)) fs.writeNew(to, fs.readAll(from))
+            }
+        }
+        log(
+            "virtual assets: root=${plan.root} objects=${plan.objectCount} copied=$copied " +
+                "map_to_resources=${plan.mapToResources} dropped=${plan.dropped} missing=$missing",
+        )
+        return true
+    }
+
+    private fun writeInstanceMetadata(mcVersion: String, instanceId: String, virtual: Boolean) {
         val portableRel = "versions/$instanceId/instance.json"
         if (!fs.exists(portableRel)) {
             val text = buildJsonObject {
@@ -221,8 +261,18 @@ class GameInstaller(
                 put("displayName", instanceId)
                 put("mcVersion", mcVersion)
                 put("loader", buildJsonObject { put("kind", "vanilla") })
+                if (virtual) put("assetsVirtual", true)
             }.toString()
             fs.writeNew(portableRel, text.toByteArray(Charsets.UTF_8))
+        } else if (virtual) {
+            // Reinstall: patch the flag onto an existing metadata file (idempotent).
+            val obj = runCatching {
+                json.parseToJsonElement(String(fs.readAll(portableRel), Charsets.UTF_8)).jsonObject.toMutableMap()
+            }.getOrNull()
+            if (obj != null && obj["assetsVirtual"] == null) {
+                obj["assetsVirtual"] = JsonPrimitive(true)
+                fs.writeNew(portableRel, JsonObject(obj).toString().toByteArray(Charsets.UTF_8))
+            }
         }
         val machineRel = "versions/$instanceId/machine.local.json"
         if (!fs.exists(machineRel)) {

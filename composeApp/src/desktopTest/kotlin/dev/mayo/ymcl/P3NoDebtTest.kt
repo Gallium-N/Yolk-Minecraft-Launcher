@@ -240,4 +240,50 @@ class P3NoDebtTest {
                 .jsonObject["id"]!!.jsonPrimitive.content,
         )
     }
+
+    // ---------- B: legacy virtual / map_to_resources assets ----------
+
+    @Test
+    fun `legacy version range is 1 6 through 1 12 only`() {
+        assertTrue(dev.mayo.ymcl.app.LegacyAssets.isLegacy("1.6.4"))
+        assertTrue(dev.mayo.ymcl.app.LegacyAssets.isLegacy("1.7.10"))
+        assertTrue(dev.mayo.ymcl.app.LegacyAssets.isLegacy("1.12.2"))
+        assertFalse(dev.mayo.ymcl.app.LegacyAssets.isLegacy("1.13"))
+        assertFalse(dev.mayo.ymcl.app.LegacyAssets.isLegacy("1.16.5"))
+        assertFalse(dev.mayo.ymcl.app.LegacyAssets.isLegacy("1.20.1"))
+    }
+
+    @Test
+    fun `asset names keep spaces and CJK but reject traversal absolute and drive`() {
+        val a = dev.mayo.ymcl.app.LegacyAssets
+        assertEquals("minecraft/sounds/中文 音效.ogg", a.safeAssetName("minecraft/sounds/中文 音效.ogg"))
+        assertEquals("a/b/c.png", a.safeAssetName("a\\b\\c.png"))
+        org.junit.Assert.assertNull(a.safeAssetName("../../evil.txt"))
+        org.junit.Assert.assertNull(a.safeAssetName("/etc/passwd"))
+        org.junit.Assert.assertNull(a.safeAssetName("C:\\evil.txt"))
+        org.junit.Assert.assertNull(a.safeAssetName("a/../b"))
+    }
+
+    @Test
+    fun `virtual plan copies into virtual root and resources with original names`() {
+        val idx = """{"virtual":true,"map_to_resources":true,"objects":{
+            "minecraft/sounds/step 1.ogg":{"hash":"aabbccdd","size":10},
+            "minecraft/textures/中文.png":{"hash":"11223344","size":20},
+            "../../evil.txt":{"hash":"deadbeef","size":1}}}"""
+        val plan = dev.mayo.ymcl.app.LegacyAssets.plan(idx, "1.12.2")!!
+        assertEquals("assets/virtual/1.12.2", plan.root)
+        assertTrue(plan.mapToResources)
+        assertEquals(3, plan.objectCount)
+        assertEquals(1, plan.dropped)
+        assertEquals(2, plan.copies.size)
+        assertEquals("assets/objects/aa/aabbccdd", plan.copies[0].first)
+        assertEquals("assets/virtual/1.12.2/minecraft/sounds/step 1.ogg", plan.copies[0].second)
+        assertEquals("resources/minecraft/textures/中文.png", plan.resourceCopies[1].second)
+    }
+
+    @Test
+    fun `modern version without explicit virtual flag has no plan`() {
+        val idx = """{"objects":{"minecraft/sounds/a.ogg":{"hash":"aabb"}}}"""
+        org.junit.Assert.assertNull(dev.mayo.ymcl.app.LegacyAssets.plan(idx, "1.20.1"))
+    }
 }
