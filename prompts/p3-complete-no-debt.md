@@ -88,6 +88,42 @@ fun install(kind: LoaderKind, mcVersion: String, loaderVersion: String?, instanc
 `files[]` 顺序 → 并发 8，复用 P3 并发语义，**不动** `HttpDownloadTransport` 的超时/熔断/失败清单。
 FO（52 文件 / 27MB）目标 **≤ 2 分钟**。
 
+## G. 新建实例 / 安装游戏版本的界面入口（现在完全没有）
+
+下载器、加载器安装、并行下载全都做完了，但**用户点不出"装一个新版本"**——目前唯一的 UI 入口是导入整合包。
+要补的是 P3 的入口本身，不是新功能：
+
+**入口**：实例页工具条「新建实例」按钮（P1 稿里就在，一直没接线）；空状态的「获取内容」按钮改为指向这里。
+
+**第一步：选版本**
+- 从 `MetaRepository.loadManifest()` 拉清单（已有缓存 + 离线回退，别新写一套）
+- 列表按类型分组：`release` / `snapshot` / `old_beta` / `old_alpha`，默认只显示 release
+- 搜索框按版本号即时过滤；每行显示版本号 + 类型徽章 + 发布日期
+- 拉取失败且无缓存 → 可读错误 + 重试按钮，不许空白
+
+**第二步：加载器（可选）**
+- 段选：原版 / Fabric / Forge / Quilt / NeoForge
+- 选中后异步拉该 MC 版本可用的 loader 版本列表（Fabric 用 maven-metadata，Quilt 用 meta，Forge/NeoForge 用各自 maven 的 `maven-metadata.xml`），默认选最新稳定
+- NeoForge 探测不可达时该选项置灰并写原因，不许点了没反应
+
+**第三步：实例名**
+- 默认 `<mc 版本> · <加载器>`（原版就是 `<mc 版本>`），`displayName` 可改，`instanceId` 实时显示且冲突时自动递增
+- 目标目录只显示，不可编辑（`<gameRoot>/versions/<instanceId>`）
+
+**第四步：安装进度**
+- 阶段化进度：`解析版本 → client jar → libraries → assets → 原生库 → 加载器 → 完成`
+- 每阶段显示 `已完成/总数` + 字节；可取消（取消停下载、清 `.part`、**保留已下文件**，明确写"已下载部分会在下次安装时复用"）
+- 失败：列出失败文件清单（沿用失败清单机制），给"重试失败项"按钮
+
+**第五步：完成**
+- 跳到实例页并选中新实例，状态「就绪」
+- 失败或取消 → 停在当前页，实例以「未完成」状态存在（`instance.json` 里 `installState: "broken"`），可以点「继续安装」
+
+**约束**
+- 安装逻辑**全部复用**现有 `GameInstaller` / `LoaderInstaller`，UI 只负责编排与展示，不许在 UI 里拼 URL 或写文件
+- 长任务在后台，UI 不阻塞；离开页面不中断安装（但要有全局提示）
+- 与"导入整合包"共用同一套进度组件
+
 ## 单测（≥12）
 
 loader：四种 kind 的 URL 与 profile 形态（假 fetcher）、Forge launcher_profiles 补写、117 库自包含；
@@ -109,10 +145,17 @@ virtual assets 映射（含姓名含空格/中文）；Java 矩阵边界（1.16.
 10. **official-only**：关镜像装一次，日志零 bmclapi
 11. **界面**：实例列表无基座行；FO 显示 `49 个模组`（截图）
 12. **并行导入**：FO 新实例 ≤ 2 分钟，日志时间戳并发
-13. `docs/p3-capability-matrix.md`：能力 / 证据 / 状态三列，覆盖 A–F 全部条目；没跑过的写 ❌ 并说明原因
-14. `docs/HANDOFF.md`：§4 下一步只剩 P6 诊断 / P7 Java 安装 / P8 打包；已知坑补 virtual assets、
-   自包含 profile、基座 role；§8 补 tag `p3-v2`
-15. 报告：`文件:行`、`git log --oneline 6383f74..HEAD`、`git status --porcelain`
+13. `docs/p3-capability-matrix.md`：能力 / 证据 / 状态三列，覆盖 A–G 全部条目；没跑过的写 ❌ 并说明原因
+14. **看图安装游戏**（G 段核心）：全新 `gameRoot` → 实例页点「新建实例」→ 选 1.20.1 release（列表来自 922 条清单）
+    → 加载器选 Fabric 最新 → 默认实例名 → 安装 → 完成跳实例页 → 启动进主菜单。
+    截图四张：版本列表、加载器选择、安装中、安装完成后的实例页
+15. **取消与续装**：安装中取消 → 实例以「未完成」存在 → 点「继续安装」→ 已下文件复用（日志 `skip(local` 或 `resume from`）
+    → 装完可启动
+16. **原版入口**：同一流程选「原版」装一个（例如 1.21.1 或 1.20.1 的另一实例）→ 启动成功
+17. **NeoForge 置灰**：加载器段选里 NeoForge 不可达时置灰 + 原因文案（截图）
+18. `docs/HANDOFF.md`：§4 下一步只剩 P6 诊断 / P7 Java 安装 / P8 打包；已知坑补 virtual assets、
+    自包含 profile、基座 role；§8 补 tag `p3-v2`
+19. 报告：`文件:行`、`git log --oneline 509f15a..HEAD`、`git status --porcelain`
 
 ## 不要做
 
