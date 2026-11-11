@@ -114,6 +114,7 @@ fun main() = application {
     val qaNewVersion = System.getProperty("ymcl.qa.newinstance.version")
     val qaNewLoader = System.getProperty("ymcl.qa.newinstance.loader")
     val qaNewStart = System.getProperty("ymcl.qa.newinstance.start") == "1"
+    val qaPage = System.getProperty("ymcl.qa.page")
 
     // Do not pin the size through WindowState: a tiling compositor may map the
     // window larger first and re-applying a size would draw only in the corner.
@@ -167,6 +168,12 @@ fun main() = application {
                 }
             } catch (e: Exception) {
                 println("DROP target unavailable: ${e.message}")
+            }
+        }
+        // QA-only: open a specific page directly (acceptance screenshots).
+        LaunchedEffect(qaPage) {
+            if (qaPage != null) {
+                AppPage.entries.firstOrNull { it.name.equals(qaPage, true) }?.let { state.navigate(it) }
             }
         }
         // QA-only: exercise the exact same AppState.launch path a button uses.

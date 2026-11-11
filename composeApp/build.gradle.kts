@@ -66,7 +66,9 @@ tasks.withType<JavaExec>().configureEach {
         "ymcl.qa.modrinth.dialog", "ymcl.qa.modrinth.install",
         "ymcl.qa.modpack.file", "ymcl.qa.modpack.start",
         "ymcl.qa.newinstance.version", "ymcl.qa.newinstance.loader",
-        "ymcl.qa.newinstance.start",
+        "ymcl.qa.newinstance.start", "ymcl.qa.newinstance.stageDelayMs",
+        "ymcl.qa.newinstance.cancelAtStage",
+        "ymcl.qa.neoforge.unreachable", "ymcl.qa.page",
     ).forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
@@ -131,6 +133,44 @@ tasks.register<JavaExec>("stallSelfCheck") {
     classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
     mainClass.set("dev.mayo.ymcl.StallSelfCheckKt")
     System.getProperty("ymcl.a3")?.let { systemProperty("ymcl.a3", it) }
+}
+
+// P3 v2 unified-loader real-machine check (fabric/forge/quilt/neoforge).
+tasks.register<JavaExec>("loaderV2SelfCheck") {
+    group = "verification"
+    description = "Runs the P3 v2 unified loader install + launch self-check."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.LoaderV2SelfCheckKt")
+    listOf(
+        "ymcl.v2.mode", "ymcl.v2.gameRoot", "ymcl.v2.mc", "ymcl.v2.loaderVersion",
+        "ymcl.v2.instanceId", "ymcl.v2.official", "ymcl.v2.shot",
+    ).forEach { key -> System.getProperty(key)?.let { systemProperty(key, it) } }
+}
+
+// P3 v2 acceptance #8: two-process cross-restart Range resume.
+tasks.register<JavaExec>("resumeSelfCheck") {
+    group = "verification"
+    description = "Phase kill/resume for cross-restart .part Range resume."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.ResumeSelfCheckKt")
+    listOf(
+        "ymcl.resume.phase", "ymcl.resume.root", "ymcl.resume.url", "ymcl.resume.sha1",
+        "ymcl.resume.size", "ymcl.resume.killAt",
+    ).forEach { key -> System.getProperty(key)?.let { systemProperty(key, it) } }
+}
+
+// P3 v2 acceptance #6/#7: 1.12.2 virtual assets + Java 8 launch.
+tasks.register<JavaExec>("legacySelfCheck") {
+    group = "verification"
+    description = "Installs 1.12.2 with legacy virtual assets and launches on Java 8."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.LegacySelfCheckKt")
+    listOf(
+        "ymcl.v2.legacyRoot", "ymcl.v2.legacyMc", "ymcl.v2.java8", "ymcl.v2.shot",
+    ).forEach { key -> System.getProperty(key)?.let { systemProperty(key, it) } }
 }
 
 // P3 step-4 loader self-check. -Dymcl.loader.mode=fabric|forge|idempotent|error.

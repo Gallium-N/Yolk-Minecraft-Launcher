@@ -48,20 +48,16 @@ P2 已验证：15 个本地版本（首屏 12 行、其余滚动；最终启动�
 
 ## 4. 下一步（按顺序，每条有验收）
 
-> 版本清单 / 原版安装 / Fabric+Forge 加载器已完成并交接，见 `docs/p3-report.md`、tag `p3-complete`。
-> 以下编号与 `NOTES.md`「Phase 计划」一致。
+> P3 v2「不留欠债」已完成：四种加载器生产化、老版本 virtual assets、Java 矩阵、
+> 传输层续传 / bmclapi-hash / official-only、基座 role / 真实 modCount / 启动宏、
+> 整合包并行导入、新建实例向导。证据与未跑项见 `docs/p3-capability-matrix.md`、
+> tag `p3-v2`。P4/P5 亦已完成，不再列为下一步。
 
-1. **P4 资源获取**：Modrinth / CurseForge 搜索、版本过滤、依赖补齐、
-   Mod/资源包/光影安装；整合包只下载不导入。
-   验收：装 sodium + iris 能启动；无 CF key 有明确提示。→ `prompts/phase4-resources.md`
-2. **P5 整合包导入**：mrpack 与 CurseForge zip +
-   `client-overrides/.launcher/instance.json` 可选配置。
-   验收：别人的整合包导入即玩，Prism 也能正常装。
-3. **P6 诊断**：类名→jar 索引、元数据指纹、规则证据链、Mixin 冲突。
+1. **P6 诊断**：类名→jar 索引、元数据指纹、规则证据链、Mixin 冲突。
    验收：拿真实 crash-report 给出结论 + 证据 + 一键处置。
-4. **P7 Java 运行时安装**（延后）：Adoptium API + TUNA/华为云镜像安装器，
+2. **P7 Java 运行时安装**（延后）：Adoptium API + TUNA/华为云镜像安装器，
    接进 P2 的注册表。验收：装好 JRE 21 并出现在运行时列表里。
-5. **P8 打包分发**：单 exe（自解压）+ AppImage + 签名清单自更新。
+3. **P8 打包分发**：单 exe（自解压）+ AppImage + 签名清单自更新。
    验收：两个平台各一个单文件，朋友双击即用。
 
 ## 5. 构建/测试/运行
@@ -121,7 +117,28 @@ composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
 - **停滞判据**：30s 无新字节 → `STALL@30s` abort 切候选；总 300s 兜底。慢不等于坏
   （C 组 official 上 538KB 花 196s 是网络烂，不是文件坏），只杀没进展。
 - **x-bmclapi-hash**：只在 40 位合法 sha1 且本地已存在同 hash 文件时用于「跳过」，
-  绝不替代 manifest/版本 json 的 sha1 校验。
+  绝不替代 manifest/版本 json 的 sha1 校验。第二次安装的「本地已有 → 跳过」日志统一为
+  `skip(local, bmclapi-hash=<sha1>)`。
+
+### P3 v2 已知坑（2026-11-10，勿回退）
+
+- **老版本 assets 必须虚拟化**：1.6–1.12 的客户端按原始名（如
+  `minecraft/sounds/...`）找资源，不是按 hash。安装时把 `objects/<hh>/<hash>` 复制成
+  `assets/virtual/<mcVersion>/<原始名>`（`map_to_resources` 再复制一份到
+  `<gameRoot>/resources/`），`instance.json` 记 `assetsVirtual=true`，启动时
+  `HmclGameInstance.getActualAssetDirectory` 把 `--assetsDir` 指过去。Mojang 现行的
+  1.12 / 1.7.10 index 已不带 `virtual` 字段，所以按 1.6–1.12 版本区间兜底触发。
+  **不要删掉这段、也不要把 `--assetsDir` 改回普通 `assets/`**。
+- **Forge/NeoForge 自包含 profile 仍是硬要求**：四种加载器统一走
+  `LoaderInstaller.install()`；Forge/NeoForge 跑官方 installer 后必须把继承式 profile
+  合并成 117 库自包含（去 `inheritsFrom`、`jar` 指向自身并硬链接原版 jar），
+  否则 HMCL 的 JPMS module layer 仍会重复解析原版 jar。
+- **基座实例 `role: "base"`**：`GameInstaller` 给纯版本号的基座目录写
+  `instance.json` 的 `role: base`；`FileInstanceRepository` 过滤它（只隐藏、不删目录，
+  其它实例还要继承它的 jar/libraries）。别把基座当普通实例列出来，也别删目录。
+- **`${clientid}` / `${auth_xuid}`**：`YmclLauncher` 覆写 `getConfigurations()` 注入
+  32 位 hex 与空串，日志里不应再有未替换的 `${`。正版登录 / Realms 前仍要确认
+  HMCL 对这两个参数的实际取值语义。
 
 ## 7. 关键文件索引
 
@@ -150,5 +167,8 @@ composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
   从 `hy4-start` 直接开工会缺 `prompts/phase3-install.md`，所以 P3 请从 `p3-start` 开新分支。
 - `p3-complete`：**P3 最终报告完成点**（`docs/p3-report.md` 入库后的提交；E2E 入口已入库，
   但其 forge 步骤因耗时长被中断，详见 `docs/p3-report.md` §4）。P4 请从 `p3-complete` 开新分支。
+- `p3-v2`：**P3「不留欠债」完成点**（四加载器 / virtual assets / Java 矩阵 / 传输补齐 /
+  界面三错 / 并行导入 / 新建实例向导；`docs/p3-capability-matrix.md` 入库）。
+  P6 请从 `p3-v2` 开新分支。
 回退：`git switch main && git branch -D p2-engine` 丢弃 P2；
 `git switch -c retry p1-baseline` 从 P1 重开；单步用 `git revert <hash>`。
