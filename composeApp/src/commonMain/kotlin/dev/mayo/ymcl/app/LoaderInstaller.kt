@@ -203,8 +203,12 @@ class LoaderInstaller(
         val obj = json.parseToJsonElement(String(fs.readAll(parentRel), Charsets.UTF_8)).jsonObject.toMutableMap()
         val libs = obj["libraries"]?.jsonArray?.size ?: 0
         obj["id"] = JsonPrimitive(instanceId)
-        obj["inheritsFrom"] = JsonPrimitive(parentInstanceId)
-        obj["jar"] = JsonPrimitive(parentInstanceId)
+        // The parent json is copied in full (arguments/libraries/assets), so the
+        // instance must be SELF-CONTAINED. Keeping `inheritsFrom` would make
+        // HMCL merge the parent's arguments.game a second time and the client
+        // would die with "multiple arguments for option version".
+        obj.remove("inheritsFrom")
+        obj["jar"] = JsonPrimitive(instanceId)
         fs.writeNew("versions/$instanceId/$instanceId.json", JsonObject(obj).toString().toByteArray(Charsets.UTF_8))
         if (!fs.exists("versions/$instanceId/$instanceId.jar")) {
             fs.linkOrCopy("versions/$parentInstanceId/$parentInstanceId.jar", "versions/$instanceId/$instanceId.jar")

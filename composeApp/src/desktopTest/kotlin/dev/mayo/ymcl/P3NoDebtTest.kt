@@ -229,7 +229,7 @@ class P3NoDebtTest {
     }
 
     @Test
-    fun `vanilla instance inherits the shared base without overwriting it`() {
+    fun `vanilla instance is self contained and never overwrites the shared base`() {
         val (installer, fs, _) = fixture()
         fs.files["versions/1.20.1/1.20.1.json"] = vanillaJson(3).toByteArray(Charsets.UTF_8)
         fs.files["versions/1.20.1/1.20.1.jar"] = "jar".toByteArray()
@@ -237,6 +237,12 @@ class P3NoDebtTest {
         assertEquals(3, result.libraryCount)
         assertTrue(fs.files.containsKey("versions/Vanilla-Two/Vanilla-Two.json"))
         assertTrue(fs.files.containsKey("versions/Vanilla-Two/Vanilla-Two.jar"))
+        // A copied-in-full parent plus inheritsFrom makes HMCL merge
+        // arguments.game twice -> "multiple arguments for option version".
+        val child = Json.parseToJsonElement(String(fs.files["versions/Vanilla-Two/Vanilla-Two.json"]!!)).jsonObject
+        org.junit.Assert.assertNull(child["inheritsFrom"])
+        assertEquals("Vanilla-Two", child["jar"]!!.jsonPrimitive.content)
+        assertTrue(child["libraries"]!!.jsonArray.isNotEmpty())
         assertEquals(
             "1.20.1",
             Json.parseToJsonElement(String(fs.files["versions/1.20.1/1.20.1.json"]!!))

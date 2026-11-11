@@ -80,7 +80,7 @@
 | 取消后「继续安装」复用已下文件并装完 | 真机 `resume-flow`：取消 → `installState:"broken"` → 点「继续安装」→ `install summary: files=3689 ... failures=0 skipped=3688`（已下文件复用，`skip(local, bmclapi-hash=...)`）→ `NEW_INSTANCE loader=0.20.1 libs=8` → `broken` 标记清除 → 实例页 `就绪`；`p3-wizard-resumed.png` | ✅ |
 | 取消清 `.part` 但保留已下文件、明确提示复用 | `InstallProgressCard` 文案 + `NewInstanceBackendImpl.cancel()`；`cancelAtStage=4` 真机日志 `downloaded files kept` | ✅ |
 | 长任务后台、离开页面不中断 | `CoroutineScope(SupervisorJob()+Dispatchers.IO)` 持于 UiState（不随 Composable 销毁） | ⚠️（代码具备，未做离开页面再回来的真机专项） |
-| 原版入口选「原版」装另一个实例并启动 | 未跑（本轮向导选的是 Fabric） | ❌ |
+| 原版入口选「原版」装另一个实例并启动 | 真机 `p3-vanilla`：向导选「原版」装 `1-20-1`（`instance.json` 无 broken、loader=vanilla），实例页 `1.20.1 · 原版 · 就绪`；点启动进主菜单，`Setting user: YMCL` / `Sound engine started`；`p3-vanilla-instances.png`、`p3-vanilla-menu.png`。修复了 `installVanilla` 复制完整父 json 却仍写 `inheritsFrom` 导致 `--version` 参数重复崩溃的问题（改为自包含 profile） | ✅ |
 | NeoForge 置灰截图 | `p3-neoforge-greyed.png`（`-Dymcl.qa.neoforge.unreachable=1` 复现不可达分支） | ✅ |
 | **删除未完成的安装（新增）** | `p3-broken-cleanup-card.png`（版本页 `未完成的安装 · 2 个` 卡片，base 不出现）、`p3-broken-cleanup-confirm.png`（确认框含实例名+完整路径）、`p3-broken-cleanup-after.png`（删 1 个后变 `1 个`）；`p3-error-with-delete-btn.png`（错误页「删除未完成的安装」按钮）、`p3-delete-confirm.png`；真机 `DELETE_BROKEN id=... removed=true`、目录消失、其它 broken 与 base 均保留；`DeleteBrokenTest` 5 个离线单测（只删 broken / 拒正常、基座、路径穿越、绝对/盘符） | ✅ |
 
