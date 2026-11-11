@@ -117,18 +117,39 @@ class GameInstaller(
         // Libraries: shared; only linux native jars are unpacked into the instance.
         (version["libraries"]?.jsonArray?.toList() ?: emptyList()).forEach { element ->
             val lib = element.jsonObject
-            val artifact = lib["downloads"]?.jsonObject?.get("artifact")?.jsonObject ?: return@forEach
-            val path = artifact["path"]?.jsonPrimitive?.content ?: return@forEach
+            val downloads = lib["downloads"]?.jsonObject
+            val artifact = downloads?.get("artifact")?.jsonObject
+            val path = artifact?.get("path")?.jsonPrimitive?.content
             val name = lib["name"]?.jsonPrimitive?.content.orEmpty()
-            val linuxNative = name.contains(":natives-linux") || path.contains("-natives-linux")
-            specs += DownloadSpec(
-                relativePath = scoped(DownloadScope.SHARED, instanceId, "libraries/$path"),
-                candidates = source.library(path).withSources(source.id),
-                expectedSha1 = artifact["sha1"]?.jsonPrimitive?.content,
-                expectedSize = artifact["size"]?.jsonPrimitive?.content?.toLongOrNull(),
-                unpackNativesTo = if (linuxNative) scoped(DownloadScope.INSTANCE, instanceId, "natives") else null,
-                scope = DownloadScope.SHARED,
-            )
+            if (path != null) {
+                val linuxNative = name.contains(":natives-linux") || path.contains("-natives-linux")
+                specs += DownloadSpec(
+                    relativePath = scoped(DownloadScope.SHARED, instanceId, "libraries/$path"),
+                    candidates = source.library(path).withSources(source.id),
+                    expectedSha1 = artifact["sha1"]?.jsonPrimitive?.content,
+                    expectedSize = artifact["size"]?.jsonPrimitive?.content?.toLongOrNull(),
+                    unpackNativesTo = if (linuxNative) scoped(DownloadScope.INSTANCE, instanceId, "natives") else null,
+                    scope = DownloadScope.SHARED,
+                )
+            }
+            // Legacy (1.6–1.12) version json keeps the real LWJGL/JInput natives
+            // under downloads.classifiers["natives-linux"], while downloads.artifact
+            // is a 22-byte dummy. HMCL resolves that classifier path at launch, so
+            // it must be present (and unpacked) or old clients fail with
+            // NoSuchFileException before the main menu.
+            downloads?.get("classifiers")?.jsonObject?.forEach { (classifier, value) ->
+                if (!classifier.startsWith("natives-linux")) return@forEach
+                val info = value.jsonObject
+                val nativePath = info["path"]?.jsonPrimitive?.content ?: return@forEach
+                specs += DownloadSpec(
+                    relativePath = scoped(DownloadScope.SHARED, instanceId, "libraries/$nativePath"),
+                    candidates = source.library(nativePath).withSources(source.id),
+                    expectedSha1 = info["sha1"]?.jsonPrimitive?.content,
+                    expectedSize = info["size"]?.jsonPrimitive?.content?.toLongOrNull(),
+                    unpackNativesTo = scoped(DownloadScope.INSTANCE, instanceId, "natives"),
+                    scope = DownloadScope.SHARED,
+                )
+            }
         }
 
         // Asset objects: shared, content-addressed by their own sha1.

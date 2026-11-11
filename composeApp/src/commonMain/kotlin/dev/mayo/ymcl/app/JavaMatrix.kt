@@ -37,7 +37,11 @@ object JavaMatrix {
         val java = if (strict(mcVersion)) {
             runtimes.filter { it.major == required }.minByOrNull { it.path }
         } else {
-            runtimes.filter { it.major >= required }.maxByOrNull { it.major }
+            // Pick the CLOSEST compatible Java, not the newest one: 1.20.1 asks
+            // for 17, so prefer registered 21 over 25 (whose module changes break
+            // older Forge/Fabric). Acceptance #7 expects 1.20.1 on Java 21.
+            runtimes.filter { it.major >= required }
+                .minWithOrNull(compareBy<JavaRuntime> { it.major }.thenBy { it.path })
         }
         return Selection(java, required, available, strict(mcVersion))
     }

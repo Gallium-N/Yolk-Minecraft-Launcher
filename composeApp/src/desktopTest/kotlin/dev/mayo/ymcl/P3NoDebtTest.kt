@@ -33,7 +33,10 @@ class P3NoDebtTest {
     // ---------- shared in-memory fixtures ----------
 
     class MemFs : DownloadFileSystem {
-        val files = linkedMapOf<String, ByteArray>()
+        // 8-way concurrency test writes distinct keys in parallel; a plain
+        // LinkedHashMap loses puts. Production FS is thread-safe, so the fake
+        // must be too for the concurrency assertion to be meaningful.
+        val files = java.util.concurrent.ConcurrentHashMap<String, ByteArray>()
         override fun exists(p: String) = files.containsKey(p)
         override fun size(p: String) = files[p]?.size?.toLong() ?: 0L
         override fun sha1Of(p: String) = MessageDigest.getInstance("SHA-1")
@@ -113,7 +116,7 @@ class P3NoDebtTest {
 
     private fun forgeProfile(libCount: Int): String {
         val libs = (1..libCount).joinToString(",") { i ->
-            """{"name":"net.minecraftforge:forge:$i","url":"https://maven.minecraftforge.net/"}"""
+            """{"name":"net.minecraftforge:forge:$i","url":"http://fixture/forge/"}"""
         }
         return """{"id":"1.20.1-forge-47.2.0","inheritsFrom":"1.20.1",
             "mainClass":"cpw.mods.bootstraplauncher.BootstrapLauncher",
@@ -165,7 +168,7 @@ class P3NoDebtTest {
         val versions = """[{"loader":{"version":"0.24.0"}},{"loader":{"version":"0.20.0-beta.9"}}]"""
         val profile = """{"id":"quilt-loader-0.24.0-1.20.1","inheritsFrom":"1.20.1",
             "mainClass":"org.quiltmc.loader.impl.launch.knot.KnotClient",
-            "libraries":[{"name":"org.quiltmc:quilt-loader:0.24.0","url":"https://maven.quiltmc.org/repository/release/"}]}"""
+            "libraries":[{"name":"org.quiltmc:quilt-loader:0.24.0","url":"http://fixture/quilt/"}]}"""
         val fetcher = MetaFetcher { candidates ->
             if (candidates.any { it.contains("/v3/versions/loader/1.20.1") && !it.contains("/profile/") }) versions else profile
         }
@@ -315,8 +318,13 @@ class P3NoDebtTest {
         val missing = m.select("1.12.2", listOf(java(17), java(21)))
         org.junit.Assert.assertNull(missing.java)
         assertTrue(m.missingMessage(missing).contains("需要 Java 8，本机只有 17/21"))
-        assertEquals(21, m.select("1.20.1", runtimes).java!!.major)
+        // Closest compatible major: 1.20.1 asks for 17, so with 17 registered
+        // it wins; on this machine only 21/25 exist, so 21 wins (not 25).
+        assertEquals(17, m.select("1.20.1", runtimes).java!!.major)
         assertEquals(21, m.select("1.21.1", runtimes).java!!.major)
+        val thisMachine = listOf(java(21), java(25), java(25))
+        assertEquals(21, m.select("1.20.1", thisMachine).java!!.major)
+        assertEquals(21, m.select("1.21.1", thisMachine).java!!.major)
     }
 
     // ---------- D: transport resume + bmclapi-hash skip ----------
@@ -415,11 +423,15 @@ class P3NoDebtTest {
     }
 
     @Test
-    fun `launch macros are 32 hex and empty xuid`() {
+    fun `launch macros are 32 hex, empty xuid and no unresolved placeholders`() {
         val extra = dev.mayo.ymcl.app.LaunchMacros.extras("0123456789abcdef0123456789abcdef")
         assertTrue(Regex("^[0-9a-f]{32}$").matches(extra["\${clientid}"]!!))
-        assertEquals("", extra["\${auth_xuid}"])
-        assertEquals(2, extra.size)
+        // HMCLCore rejects blank argv entries, so the empty xuid is quoted to
+        // keep the --xuid value slot while remaining non-blank.
+        assertEquals("\"\"", extra["\${auth_xuid}"])
+        assertEquals("YMCL", extra["\${launcher_name}"])
+        assertTrue(extra["\${launcher_version}"]!!.isNotBlank())
+        assertTrue(extra.values.none { it.contains("\${") })
     }
 
     // ---------- F: 8-way concurrent downloads ----------

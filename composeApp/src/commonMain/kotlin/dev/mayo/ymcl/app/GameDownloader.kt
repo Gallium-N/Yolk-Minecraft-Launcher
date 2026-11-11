@@ -277,19 +277,24 @@ class GameDownloader(
                 val actualSha1 = fs.sha1Of(part)
                 val actualSize = fs.size(part)
                 if (!verify(actualSha1, actualSize, spec)) {
-                    errors += "$target#$attempt sha1 期望=${spec.expectedSha1} 实际=$actualSha1 " +
-                        "size 期望=${spec.expectedSize} 实际=$actualSize"
                     dropPart(part)
                     fs.delete(target)
                     if (attempt == 1) {
+                        errors += "$target#$attempt sha1 期望=${spec.expectedSha1} 实际=$actualSha1 " +
+                            "size 期望=${spec.expectedSize} 实际=$actualSize"
                         redownloaded = true
                         continue
                     }
-                    throw DownloadFailedException(
-                        "$target：重下一次后校验仍失败（期望 sha1=${spec.expectedSha1} / 实际=$actualSha1，" +
-                            "期望 size=${spec.expectedSize} / 实际=$actualSize）；" +
-                            "候选错误：" + errors.joinToString("; "),
-                    )
+                    // Do not give up on the whole download after the second
+                    // retry of ONE candidate: BMCLAPI rewrites version json so
+                    // its sha1 can never match the manifest, and the official
+                    // candidate must be allowed to serve it. Record the failure
+                    // and fall through; the post-loop throw reports all errors.
+                    failCandidate(target, part, "SHA1-MISMATCH", host,
+                        "$target#$attempt sha1 期望=${spec.expectedSha1} 实际=$actualSha1 " +
+                            "size 期望=${spec.expectedSize} 实际=$actualSize",
+                        errors, ordered, candidateIndex)
+                    break
                 }
 
                 fs.move(part, target)
