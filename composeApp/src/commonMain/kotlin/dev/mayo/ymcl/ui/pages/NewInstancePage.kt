@@ -1,6 +1,7 @@
 package dev.mayo.ymcl.ui.pages
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -31,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.mayo.ymcl.app.AppState
+import dev.mayo.ymcl.app.BrokenInstall
 import dev.mayo.ymcl.app.NewInstanceUiState
 import dev.mayo.ymcl.app.NewInstanceUiState.Step
 import dev.mayo.ymcl.domain.LoaderKind
@@ -46,6 +49,7 @@ import dev.mayo.ymcl.ui.components.TonalButton
 fun NewInstancePage(state: AppState) {
     val ui = state.newInstanceUi
     LaunchedEffect(Unit) { if (ui.versions.isEmpty()) ui.loadVersions() }
+    DeleteBrokenDialog(ui)
     Column(Modifier.fillMaxSize()) {
         PageHeader(title = "新建实例", meta = "安装游戏版本 · ${ui.versions.size} 个版本")
         when (ui.step) {
@@ -65,6 +69,7 @@ private fun VersionStep(ui: NewInstanceUiState) {
     Column(Modifier.fillMaxSize()) {
         SectionHeader("选择游戏版本", hint = "来源：Mojang 版本清单（含缓存 / 离线回退）")
         Spacer(Modifier.height(12.dp))
+        BrokenInstallsCard(ui)
         Row(verticalAlignment = Alignment.CenterVertically) {
             SearchPill(ui.versionQuery, { ui.versionQuery = it }, "搜索版本号，例如 1.20.1", Modifier.weight(1f))
             Spacer(Modifier.width(12.dp))
@@ -86,6 +91,88 @@ private fun VersionStep(ui: NewInstanceUiState) {
             }
         }
     }
+}
+
+/**
+ * Unfinished installs (`installState: broken`) left by a cancelled/failed run.
+ * They can be resumed from the error step, or discarded here with confirmation.
+ */
+@Composable
+private fun BrokenInstallsCard(ui: NewInstanceUiState) {
+    val colors = MaterialTheme.colorScheme
+    if (ui.brokenInstalls.isEmpty()) return
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(colors.errorContainer.copy(alpha = 0.18f))
+            .border(1.dp, colors.error.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+            .padding(16.dp),
+    ) {
+        Text(
+            "未完成的安装 · ${ui.brokenInstalls.size} 个",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onSurface,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text("已下载文件可在下次安装时复用；删除会移除整个实例目录，不可恢复。", fontSize = 11.sp, color = colors.onSurfaceVariant)
+        Spacer(Modifier.height(10.dp))
+        ui.brokenInstalls.forEach { BrokenInstallRow(it, onDelete = { ui.requestDelete(it.id) }) }
+        ui.deleteError?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, fontSize = 11.sp, color = colors.error)
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+}
+
+@Composable
+private fun BrokenInstallRow(item: BrokenInstall, onDelete: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(item.displayName, fontSize = 13.sp, color = colors.onSurface)
+            Text(item.path, fontSize = 10.sp, color = colors.onSurfaceVariant, maxLines = 1)
+        }
+        Spacer(Modifier.width(12.dp))
+        OutlinedPillButton(
+            text = "删除",
+            width = 72.dp,
+            height = 32.dp,
+            borderColor = colors.error.copy(alpha = 0.6f),
+            onClick = onDelete,
+        )
+    }
+}
+
+/** Confirmation shown before deleting one unfinished install. */
+@Composable
+private fun DeleteBrokenDialog(ui: NewInstanceUiState) {
+    val id = ui.pendingDeleteId ?: return
+    val colors = MaterialTheme.colorScheme
+    val item = ui.brokenInstalls.firstOrNull { it.id == id }
+    AlertDialog(
+        onDismissRequest = { ui.dismissDelete() },
+        title = {
+            Text("删除未完成的安装？", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        },
+        text = {
+            Column {
+                Text("将永久删除这个未完成安装的实例目录及其已下载文件，此操作不可撤销。", fontSize = 13.sp, color = colors.onSurface)
+                Spacer(Modifier.height(10.dp))
+                Text(item?.displayName ?: id, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
+                item?.let { Text(it.path, fontSize = 11.sp, color = colors.onSurfaceVariant) }
+            }
+        },
+        confirmButton = {
+            PrimaryButton(text = "确认删除", width = 116.dp, onClick = { ui.confirmDelete() })
+        },
+        dismissButton = {
+            TonalButton(text = "取消", width = 88.dp, onClick = { ui.dismissDelete() })
+        },
+    )
 }
 
 @Composable
@@ -155,6 +242,16 @@ private fun LoaderStep(ui: NewInstanceUiState) {
             }
         }
         Spacer(Modifier.height(12.dp))
+        // The disabled NeoForge chip can never be clicked, so surface the reason
+        // here instead of only setting it from selectLoader (acceptance #17).
+        if (!ui.neoForgeReachable) {
+            Text(
+                "NeoForge 官方源不可达（已探测），请检查网络或代理；该选项已置灰。",
+                fontSize = 12.sp,
+                color = colors.error,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
         if (ui.loaderStatus.isNotEmpty()) {
             Text(ui.loaderStatus, fontSize = 12.sp, color = colors.error)
             Spacer(Modifier.height(8.dp))
@@ -256,6 +353,17 @@ private fun ErrorStep(ui: NewInstanceUiState) {
             PrimaryButton(text = "继续安装", width = 148.dp, onClick = { ui.start(resume = true) })
             Spacer(Modifier.width(12.dp))
             TonalButton(text = "重新选择", width = 120.dp, onClick = { ui.reset() })
+            Spacer(Modifier.width(12.dp))
+            OutlinedPillButton(
+                text = "删除未完成的安装",
+                width = 148.dp,
+                borderColor = colors.error.copy(alpha = 0.6f),
+                onClick = { ui.requestDelete(ui.lastInstanceId) },
+            )
+        }
+        ui.deleteError?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, fontSize = 11.sp, color = colors.error)
         }
     }
 }

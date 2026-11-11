@@ -17,6 +17,8 @@ import java.io.File
  * base with GameInstaller, then the chosen loader with the unified
  * LoaderInstaller, and writes the instance's portable metadata.
  */
+private class InstallCancelledException : Exception()
+
 class NewInstanceBackendImpl(
     private val gameRoot: String,
     private val source: DownloadSource,
@@ -31,6 +33,8 @@ class NewInstanceBackendImpl(
     @Volatile
     private var cancelled = false
     private var activeDownloader: GameDownloader? = null
+    // QA-only: the auto-cancel hook fires once, so "继续安装" can complete.
+    private var qaCancelFired = false
 
     override fun existingIds(): Set<String> =
         File(PathUtil.toNative(PathUtil.join(gameRoot, "versions")))
@@ -68,12 +72,69 @@ class NewInstanceBackendImpl(
         return (stable.ifEmpty { all }).take(20)
     }
 
-    override fun neoForgeReachable(): Boolean = process.probe(source.neoforgeProbeUrl(), 1).reachable
+    override fun neoForgeReachable(): Boolean {
+        // QA-only: forces the unreachable branch so the greyed-out UI can be
+        // verified even when the official source happens to be up.
+        if (System.getProperty("ymcl.qa.neoforge.unreachable") == "1") return false
+        return process.probe(source.neoforgeProbeUrl(), 1).reachable
+    }
 
     override fun cancel() {
         cancelled = true
         activeDownloader?.cancel()
         log("NEW_INSTANCE cancel requested (downloaded files kept for reuse)")
+    }
+
+    /** A plain directory name: no separators, traversal, drive letter or absolute path. */
+    private fun safeInstanceId(id: String): Boolean {
+        if (id.isBlank() || id == "." || id == "..") return false
+        if (id.contains('/') || id.contains('\\')) return false
+        if (Regex("^[A-Za-z]:").containsMatchIn(id)) return false
+        return true
+    }
+
+    private fun installStateOf(instanceId: String): Pair<String?, String?> {
+        val rel = "versions/$instanceId/instance.json"
+        if (!fs.exists(rel)) return null to null
+        val obj = runCatching {
+            json.parseToJsonElement(String(fs.readAll(rel), Charsets.UTF_8)).jsonObject
+        }.getOrNull() ?: return null to null
+        return obj["installState"]?.jsonPrimitive?.content to obj["role"]?.jsonPrimitive?.content
+    }
+
+    override fun brokenInstalls(): List<BrokenInstall> {
+        val versions = File(PathUtil.toNative(PathUtil.join(gameRoot, "versions")))
+        val dirs = versions.listFiles { f -> f.isDirectory } ?: return emptyList()
+        return dirs.mapNotNull { dir ->
+            val (state, role) = installStateOf(dir.name)
+            if (state != "broken" || role.equals("base", true)) return@mapNotNull null
+            val displayName = runCatching {
+                val rel = "versions/${dir.name}/instance.json"
+                val obj = json.parseToJsonElement(String(fs.readAll(rel), Charsets.UTF_8)).jsonObject
+                obj["displayName"]?.jsonPrimitive?.content
+            }.getOrNull()?.takeIf { it.isNotBlank() } ?: dir.name
+            BrokenInstall(dir.name, displayName, PathUtil.join(gameRoot, "versions", dir.name))
+        }.sortedBy { it.id }
+    }
+
+    override fun deleteBrokenInstall(instanceId: String): Boolean {
+        if (!safeInstanceId(instanceId)) {
+            log("DELETE_BROKEN refuse: unsafe id=$instanceId")
+            return false
+        }
+        val (state, role) = installStateOf(instanceId)
+        if (state != "broken" || role.equals("base", true)) {
+            log("DELETE_BROKEN refuse: $instanceId is not a broken instance (state=$state role=$role)")
+            return false
+        }
+        val dir = File(PathUtil.toNative(PathUtil.join(gameRoot, "versions", instanceId)))
+        if (!dir.isDirectory) {
+            log("DELETE_BROKEN refuse: no directory for $instanceId")
+            return false
+        }
+        val removed = dir.deleteRecursively()
+        log("DELETE_BROKEN id=$instanceId removed=$removed path=${dir.absolutePath}")
+        return removed
     }
 
     override fun install(
@@ -87,9 +148,22 @@ class NewInstanceBackendImpl(
     ): NewInstanceResult {
         cancelled = false
         val total = 7
-        fun stage(i: Int, name: String, bytes: Long = 0L) =
-            onStage(InstallStage(name, i, total, bytes))
         val failures = mutableListOf<String>()
+        // QA-only: slows each stage so the staged-install screen can be captured
+        // and cancelled deterministically (no effect in normal runs).
+        val stageDelayMs = System.getProperty("ymcl.qa.newinstance.stageDelayMs")?.toLongOrNull() ?: 0L
+        val cancelAtStage = System.getProperty("ymcl.qa.newinstance.cancelAtStage")?.toIntOrNull()
+        fun stage(i: Int, name: String, bytes: Long = 0L) {
+            onStage(InstallStage(name, i, total, bytes))
+            if (stageDelayMs > 0) Thread.sleep(stageDelayMs)
+            // QA-only: deterministic mid-install cancellation for acceptance #15.
+            // Fires once so a later "继续安装" run is allowed to complete.
+            if (cancelAtStage == i && !qaCancelFired) {
+                qaCancelFired = true
+                cancel()
+                throw InstallCancelledException()
+            }
+        }
         log("NEW_INSTANCE start id=$instanceId mc=$mcVersion loader=${kind.id} ${loaderVersion ?: ""}")
         try {
             stage(1, "解析版本")
@@ -128,6 +202,10 @@ class NewInstanceBackendImpl(
                 writeInstanceJson(instanceId, displayName, mcVersion, kind, loaderVersion, broken = true)
             }
             return NewInstanceResult(instanceId, failures, cancelled)
+        } catch (e: InstallCancelledException) {
+            log("NEW_INSTANCE cancelled at stage=$cancelAtStage (downloaded files kept)")
+            writeInstanceJson(instanceId, displayName, mcVersion, kind, loaderVersion, broken = true)
+            return NewInstanceResult(instanceId, failures, true)
         } catch (e: Exception) {
             val msg = "安装失败：${e.message}"
             log("NEW_INSTANCE ERROR: $msg")

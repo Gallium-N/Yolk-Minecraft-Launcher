@@ -17,6 +17,13 @@ data class NewInstanceResult(
     val cancelled: Boolean,
 )
 
+/** An interrupted install (`installState: broken`) that can be discarded. */
+data class BrokenInstall(
+    val id: String,
+    val displayName: String,
+    val path: String,
+)
+
 /**
  * Boundary for the "new instance" wizard. The UI only ever sees this; the
  * desktop implementation reuses GameInstaller / LoaderInstaller, so no URL or
@@ -46,4 +53,14 @@ interface NewInstanceBackend {
 
     /** Stops downloads but KEEPS already-downloaded files for a later resume. */
     fun cancel()
+
+    /** Instances whose install was cancelled/failed (`installState: broken`). */
+    fun brokenInstalls(): List<BrokenInstall>
+
+    /**
+     * Deletes ONE unfinished install directory. Implementations MUST refuse
+     * anything that is not a `broken` instance (normal instances, shared base
+     * dirs, path traversal / absolute ids). Returns true when it was removed.
+     */
+    fun deleteBrokenInstall(instanceId: String): Boolean
 }

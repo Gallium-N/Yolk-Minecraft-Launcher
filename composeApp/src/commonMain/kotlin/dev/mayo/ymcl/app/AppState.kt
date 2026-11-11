@@ -116,6 +116,7 @@ class AppState(
             selectInstance(id)
             refresh()
         },
+        onInstancesChanged = { refresh() },
         log = ::println,
     )
 

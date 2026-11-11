@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 class NewInstanceUiState(
     private val backend: NewInstanceBackend?,
     private val onFinished: (String) -> Unit,
+    private val onInstancesChanged: () -> Unit = {},
     private val log: (String) -> Unit = ::println,
 ) {
     enum class Step { VERSION, LOADER, NAME, INSTALLING, DONE, ERROR }
@@ -61,6 +62,12 @@ class NewInstanceUiState(
         private set
     var lastInstanceId by mutableStateOf("")
         private set
+    var brokenInstalls by mutableStateOf<List<BrokenInstall>>(emptyList())
+        private set
+    var pendingDeleteId by mutableStateOf<String?>(null)
+        private set
+    var deleteError by mutableStateOf<String?>(null)
+        private set
 
     val visibleVersions: List<VersionEntry>
         get() = versions.filter { v ->
@@ -81,6 +88,54 @@ class NewInstanceUiState(
             } finally {
                 loadingVersions = false
             }
+        }
+        refreshBrokenInstalls()
+    }
+
+    /** Discovers interrupted installs so they can be resumed or discarded. */
+    fun refreshBrokenInstalls() {
+        scope.launch {
+            brokenInstalls = try {
+                backend?.brokenInstalls() ?: emptyList()
+            } catch (e: Exception) {
+                log("NEW_INSTANCE broken scan failed: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+
+    fun requestDelete(id: String) {
+        deleteError = null
+        pendingDeleteId = id
+    }
+
+    fun dismissDelete() {
+        pendingDeleteId = null
+    }
+
+    fun confirmDelete() {
+        val id = pendingDeleteId ?: return
+        scope.launch {
+            val ok = try {
+                backend?.deleteBrokenInstall(id) ?: false
+            } catch (e: Exception) {
+                log("NEW_INSTANCE delete failed: ${e.message}")
+                false
+            }
+            pendingDeleteId = null
+            if (!ok) {
+                deleteError = "删除失败：$id 不是未完成的安装，或目录被占用。"
+                return@launch
+            }
+            log("NEW_INSTANCE deleted broken install id=$id")
+            if (step == Step.ERROR && id == lastInstanceId) {
+                // The failed install being shown is gone; go back to the version
+                // list (reset reloads versions + refreshes broken installs).
+                reset()
+            } else {
+                refreshBrokenInstalls()
+            }
+            onInstancesChanged()
         }
     }
 
@@ -176,10 +231,12 @@ class NewInstanceUiState(
                 result.cancelled -> {
                     error = "安装已取消（未完成）。已下载部分会在下次安装时复用。"
                     step = Step.ERROR
+                    refreshBrokenInstalls()
                 }
                 result.failures.isNotEmpty() -> {
                     error = "安装未完成，请查看失败清单。"
                     step = Step.ERROR
+                    refreshBrokenInstalls()
                 }
                 else -> {
                     step = Step.DONE
