@@ -1,6 +1,7 @@
 package dev.mayo.ymcl.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -10,15 +11,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,17 +26,31 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import dev.mayo.ymcl.app.AppPage
 import dev.mayo.ymcl.ui.icons.YmclIcons
+import dev.mayo.ymcl.ui.motion.effects
+import dev.mayo.ymcl.ui.motion.rememberReduceMotion
+import dev.mayo.ymcl.ui.motion.spatial
+import kotlin.math.abs
 
 private data class NavEntry(val page: AppPage, val icon: ImageVector)
 
@@ -52,9 +62,38 @@ private val NAV_ENTRIES = listOf(
     NavEntry(AppPage.SETTINGS, Icons.Filled.Settings),
 )
 
+private val NAV_ITEM_SIZE = 64.dp
+private val NAV_STRIDE = 80.dp
+private val NAV_CORNER = 16.dp
+private const val NAV_TRAVEL_STRETCH = 0.20f
+
 @Composable
 fun YmclNavigationRail(current: AppPage, onSelect: (AppPage) -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val reduceMotion = rememberReduceMotion()
+    val targetIndex = NAV_ENTRIES.indexOfFirst { it.page == current }.coerceAtLeast(0)
+    val density = LocalDensity.current
+    val stridePx = remember(density) { with(density) { NAV_STRIDE.toPx() } }
+    val itemPx = remember(density) { with(density) { NAV_ITEM_SIZE.toPx() } }
+    val cornerPx = remember(density) { with(density) { NAV_CORNER.toPx() } }
+    val indicatorColor = colors.surfaceContainerHigh
+
+    // ONE capsule that slides from the previous item to the new one; no per-item
+    // fade-in/out. Spatial spring drives the position.
+    val yState = animateFloatAsState(
+        targetValue = stridePx * targetIndex,
+        animationSpec = spatial(reduceMotion),
+        label = "nav-indicator-y",
+    )
+    // Width + corner morph while travelling: derived from the spring, so no
+    // object is allocated per frame and no layout size is animated.
+    val stretchState = remember(stridePx, targetIndex) {
+        derivedStateOf {
+            val travel = abs(yState.value - stridePx * targetIndex) / stridePx
+            1f + NAV_TRAVEL_STRETCH * travel.coerceIn(0f, 1f)
+        }
+    }
+
     Column(
         modifier = Modifier
             .width(88.dp)
@@ -78,42 +117,70 @@ fun YmclNavigationRail(current: AppPage, onSelect: (AppPage) -> Unit) {
             )
         }
         Spacer(Modifier.height(36.dp))
-        NAV_ENTRIES.forEach { entry ->
-            NavRailItem(
-                entry = entry,
-                selected = current == entry.page,
-                onClick = { onSelect(entry.page) },
-            )
-            Spacer(Modifier.height(16.dp))
+        Box(
+            modifier = Modifier
+                .width(NAV_ITEM_SIZE)
+                .drawBehind {
+                    val stretch = stretchState.value
+                    val w = itemPx * stretch
+                    val left = (size.width - w) / 2f
+                    val corner = cornerPx / stretch
+                    drawRoundRect(
+                        color = indicatorColor,
+                        topLeft = Offset(left, yState.value),
+                        size = Size(w, itemPx),
+                        cornerRadius = CornerRadius(corner, corner),
+                    )
+                },
+        ) {
+            Column {
+                NAV_ENTRIES.forEachIndexed { index, entry ->
+                    NavRailItem(
+                        entry = entry,
+                        selected = current == entry.page,
+                        reduceMotion = reduceMotion,
+                        onClick = { onSelect(entry.page) },
+                    )
+                    if (index != NAV_ENTRIES.lastIndex) Spacer(Modifier.height(16.dp))
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun NavRailItem(entry: NavEntry, selected: Boolean, onClick: () -> Unit) {
+private fun NavRailItem(
+    entry: NavEntry,
+    selected: Boolean,
+    reduceMotion: Boolean,
+    onClick: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val density = LocalDensity.current
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    // The selected pill is drawn by the parent; items only keep a hover tint.
     val background by animateColorAsState(
-        when {
-            selected -> colors.surfaceContainerHigh
-            hovered -> colors.surfaceContainerHigh.copy(alpha = 0.55f)
-            else -> colors.surfaceContainer.copy(alpha = 0f)
+        targetValue = if (hovered && !selected) {
+            colors.surfaceContainerHigh.copy(alpha = 0.55f)
+        } else {
+            Color.Transparent
         },
+        animationSpec = effects(reduceMotion),
         label = "nav-item-bg",
     )
     val contentColor by animateColorAsState(
-        if (selected) colors.primary else colors.onSurfaceVariant,
+        targetValue = if (selected) colors.primary else colors.onSurfaceVariant,
+        animationSpec = effects(reduceMotion),
         label = "nav-item-fg",
     )
 
     Box {
         Column(
             modifier = Modifier
-                .width(64.dp)
-                .height(64.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .width(NAV_ITEM_SIZE)
+                .height(NAV_ITEM_SIZE)
+                .clip(RoundedCornerShape(NAV_CORNER))
                 .background(background)
                 .hoverable(interaction)
                 .clickable(interactionSource = interaction, indication = null, onClick = onClick),

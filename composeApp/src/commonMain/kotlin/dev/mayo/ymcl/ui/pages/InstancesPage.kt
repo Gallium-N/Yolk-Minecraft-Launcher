@@ -35,7 +35,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,10 +66,15 @@ import dev.mayo.ymcl.ui.components.PageHeader
 import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.StatusChip
 import dev.mayo.ymcl.ui.icons.YmclIcons
+import dev.mayo.ymcl.ui.motion.MotionVisibility
+import dev.mayo.ymcl.ui.motion.effects
+import dev.mayo.ymcl.ui.motion.listItemEntrance
+import dev.mayo.ymcl.ui.motion.rememberReduceMotion
 
 @Composable
 fun InstancesPage(state: AppState) {
     val colors = MaterialTheme.colorScheme
+    val reduceMotion = rememberReduceMotion()
     val now = nowMillis()
     val instances = state.filteredInstances()
     val clipboard = LocalClipboardManager.current
@@ -115,22 +122,43 @@ fun InstancesPage(state: AppState) {
 
             Spacer(Modifier.height(16.dp))
 
-            state.launchError?.let { error ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.errorContainer)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                ) {
-                    Text(error, fontSize = 12.sp, lineHeight = 18.sp, color = colors.onErrorContainer)
+            // Scene 6: error banner fades + expands in, shrinks out. Keep the last
+            // message while the exit animation is still on screen.
+            val errorText = state.launchError
+            val lastError = remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(errorText) { if (errorText != null) lastError.value = errorText }
+            MotionVisibility(visible = errorText != null, reduceMotion = reduceMotion) {
+                Column {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.errorContainer)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                        Text(
+                            lastError.value.orEmpty(),
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp,
+                            color = colors.onErrorContainer,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
                 }
-                Spacer(Modifier.height(12.dp))
             }
 
-            if (state.instances.isEmpty()) {
+            // Scene 6: empty state / table both animate their height instead of
+            // hard-swapping; no fixed size or spacing token is changed.
+            MotionVisibility(
+                visible = state.instances.isEmpty(),
+                reduceMotion = reduceMotion,
+            ) {
                 EmptyInstances(onGetContent = { state.navigate(AppPage.NEW_INSTANCE) })
-            } else {
+            }
+            MotionVisibility(
+                visible = state.instances.isNotEmpty(),
+                reduceMotion = reduceMotion,
+            ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -154,20 +182,25 @@ fun InstancesPage(state: AppState) {
                                 .fillMaxWidth()
                                 .verticalScroll(rememberScrollState()),
                         ) {
-                            instances.forEach { instance ->
-                                InstanceRow(
-                                    instance = instance,
-                                    now = now,
-                                    columns = columns,
-                                    selected = instance.id == state.selectedInstanceId,
-                                    running = state.activeInstanceId == instance.id,
-                                    launching = state.launchPending,
-                                    onSelect = { state.selectInstance(instance.id) },
-                                    onLaunch = { state.launch(instance.id) },
-                                    onStop = { state.stop(instance.id) },
-                                    onOpenFolder = { state.openInstanceFolder(instance.id) },
-                                    onCopyPath = { clipboard.setText(AnnotatedString(instance.path)) },
-                                )
+                            // key() keeps the entrance state of existing rows, so a
+                            // refresh only animates genuinely new instances.
+                            instances.forEachIndexed { index, instance ->
+                                key(instance.id) {
+                                    InstanceRow(
+                                        modifier = Modifier.listItemEntrance(index, reduceMotion),
+                                        instance = instance,
+                                        now = now,
+                                        columns = columns,
+                                        selected = instance.id == state.selectedInstanceId,
+                                        running = state.activeInstanceId == instance.id,
+                                        launching = state.launchPending,
+                                        onSelect = { state.selectInstance(instance.id) },
+                                        onLaunch = { state.launch(instance.id) },
+                                        onStop = { state.stop(instance.id) },
+                                        onOpenFolder = { state.openInstanceFolder(instance.id) },
+                                        onCopyPath = { clipboard.setText(AnnotatedString(instance.path)) },
+                                    )
+                                }
                             }
                         }
                     }
@@ -352,6 +385,7 @@ private fun androidx.compose.foundation.layout.BoxScope.HeaderCell(text: String,
 
 @Composable
 private fun InstanceRow(
+    modifier: Modifier = Modifier,
     instance: InstanceSummary,
     now: Long,
     columns: TableColumns,
@@ -365,19 +399,21 @@ private fun InstanceRow(
     onCopyPath: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    val reduceMotion = rememberReduceMotion()
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
-        when {
+        targetValue = when {
             selected -> colors.surfaceContainerHigh.copy(alpha = 0.55f)
             hovered -> colors.surfaceContainerHigh.copy(alpha = 0.30f)
             else -> colors.surfaceContainerLow.copy(alpha = 0f)
         },
+        animationSpec = effects(reduceMotion),
         label = "instance-row",
     )
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(92.dp)
             .background(background)

@@ -10,7 +10,14 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Desktop implementation of [NewInstanceBackend]. Installs the shared vanilla
@@ -153,8 +160,11 @@ class NewInstanceBackendImpl(
         // and cancelled deterministically (no effect in normal runs).
         val stageDelayMs = System.getProperty("ymcl.qa.newinstance.stageDelayMs")?.toLongOrNull() ?: 0L
         val cancelAtStage = System.getProperty("ymcl.qa.newinstance.cancelAtStage")?.toIntOrNull()
-        fun stage(i: Int, name: String, bytes: Long = 0L) {
-            onStage(InstallStage(name, i, total, bytes))
+        // Latest full stage snapshot. Real downloaded bytes are merged into it by
+        // the progress collector below, so a stage tick never resets the bar.
+        val stageRef = AtomicReference(InstallStage("准备中", 0, total, 0L))
+        fun stage(i: Int, name: String) {
+            onStage(stageRef.updateAndGet { it.copy(name = name, done = i, total = total) })
             if (stageDelayMs > 0) Thread.sleep(stageDelayMs)
             // QA-only: deterministic mid-install cancellation for acceptance #15.
             // Fires once so a later "继续安装" run is allowed to complete.
@@ -165,10 +175,43 @@ class NewInstanceBackendImpl(
             }
         }
         log("NEW_INSTANCE start id=$instanceId mc=$mcVersion loader=${kind.id} ${loaderVersion ?: ""}")
+        val progressScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        var progressJob: Job? = null
         try {
             stage(1, "解析版本")
             val downloader = GameDownloader(transport, fs, log)
             activeDownloader = downloader
+            // Forward the real byte stream (GameDownloader.progress) into the
+            // stage snapshot. reset() starts a new batch (base, then loader), so
+            // fold completed bytes/totals across batches to keep the bar monotonic.
+            progressJob = progressScope.launch {
+                var cumulativeBytes = 0L
+                var grandTotal = 0L
+                var lastCompleted = 0L
+                var lastBatchTotal = 0L
+                var lastEmitAt = 0L
+                downloader.progress.collect { p ->
+                    if (p.completedBytes < lastCompleted && lastCompleted > 0L) {
+                        cumulativeBytes += lastCompleted
+                        grandTotal += lastBatchTotal
+                    }
+                    lastCompleted = p.completedBytes
+                    lastBatchTotal = p.totalBytes
+                    val now = System.currentTimeMillis()
+                    if (now - lastEmitAt >= 80L) {
+                        lastEmitAt = now
+                        onStage(
+                            stageRef.updateAndGet {
+                                it.copy(
+                                    bytes = cumulativeBytes + p.completedBytes,
+                                    totalBytes = grandTotal + p.totalBytes,
+                                    currentFile = p.currentFile,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
             val manifest = meta.loadManifest().value
             if (manifest.versions.none { it.id == mcVersion }) {
                 failures += "版本清单里找不到 $mcVersion"
@@ -212,6 +255,9 @@ class NewInstanceBackendImpl(
             failures += msg
             writeInstanceJson(instanceId, displayName, mcVersion, kind, loaderVersion, broken = true)
             return NewInstanceResult(instanceId, failures, cancelled)
+        } finally {
+            progressJob?.cancel()
+            progressScope.cancel()
         }
     }
 

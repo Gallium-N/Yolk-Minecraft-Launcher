@@ -9,6 +9,9 @@ data class InstallStage(
     val done: Int,
     val total: Int,
     val bytes: Long,
+    /** Real downloaded bytes (wizard + import), 0 when no download is active. */
+    val totalBytes: Long = 0L,
+    val currentFile: String = "",
 )
 
 data class NewInstanceResult(

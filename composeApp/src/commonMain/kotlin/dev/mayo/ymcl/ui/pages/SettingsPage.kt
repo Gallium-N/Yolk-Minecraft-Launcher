@@ -45,6 +45,8 @@ import dev.mayo.ymcl.app.ThemeMode
 import dev.mayo.ymcl.ui.components.PageHeader
 import dev.mayo.ymcl.ui.components.OutlinedPillButton
 import dev.mayo.ymcl.ui.components.SegmentedControl
+import dev.mayo.ymcl.ui.motion.effects
+import dev.mayo.ymcl.ui.motion.rememberReduceMotion
 
 @Composable
 fun SettingsPage(state: AppState) {
@@ -70,6 +72,7 @@ fun SettingsPage(state: AppState) {
 @Composable
 private fun SettingsSubNav(state: AppState) {
     val colors = MaterialTheme.colorScheme
+    val reduceMotion = rememberReduceMotion()
     Column(
         modifier = Modifier.width(240.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -79,11 +82,12 @@ private fun SettingsSubNav(state: AppState) {
             val interaction = remember { MutableInteractionSource() }
             val hovered by interaction.collectIsHoveredAsState()
             val background by animateColorAsState(
-                when {
+                targetValue = when {
                     selected -> colors.secondaryContainer
                     hovered -> colors.surfaceContainerHigh
                     else -> colors.surfaceContainer.copy(alpha = 0f)
                 },
+                animationSpec = effects(reduceMotion),
                 label = "settings-nav-bg",
             )
             Box(

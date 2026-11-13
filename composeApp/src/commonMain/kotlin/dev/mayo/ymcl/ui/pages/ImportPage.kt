@@ -21,6 +21,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,24 +46,28 @@ import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.SectionHeader
 import dev.mayo.ymcl.ui.components.TonalButton
 import dev.mayo.ymcl.ui.icons.YmclIcons
+import dev.mayo.ymcl.ui.motion.ExitBeforeRemove
+import dev.mayo.ymcl.ui.motion.MotionVisibility
+import dev.mayo.ymcl.ui.motion.rememberReduceMotion
 
 @Composable
 fun ImportPage(state: AppState) {
     val ui = state.modpackUi
+    val reduceMotion = rememberReduceMotion()
     Column(Modifier.fillMaxSize()) {
         PageHeader(title = "导入整合包", meta = "mrpack · CurseForge zip")
         when (ui.stage) {
-            Stage.PICK -> PickCard(ui)
+            Stage.PICK -> PickCard(ui, reduceMotion)
             Stage.CONFIRM -> ConfirmCard(ui)
-            Stage.IMPORTING -> ImportingCard(ui)
+            Stage.IMPORTING -> ImportingCard(ui, reduceMotion)
             Stage.DONE -> DoneCard(state)
-            Stage.ERROR -> ErrorCard(ui)
+            Stage.ERROR -> ErrorCard(ui, reduceMotion)
         }
     }
 }
 
 @Composable
-private fun PickCard(ui: ModpackUiState) {
+private fun PickCard(ui: ModpackUiState, reduceMotion: Boolean) {
     val colors = MaterialTheme.colorScheme
     var pathDraft by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -137,9 +142,14 @@ private fun PickCard(ui: ModpackUiState) {
             Spacer(Modifier.width(12.dp))
             OutlinedPillButton(text = "解析", width = 96.dp, onClick = { ui.prepare(pathDraft) })
         }
-        ui.parseError?.let { message ->
-            Spacer(Modifier.height(12.dp))
-            ErrorBanner(message)
+        val parseError = ui.parseError
+        val lastParseError = remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(parseError) { if (parseError != null) lastParseError.value = parseError }
+        MotionVisibility(visible = parseError != null, reduceMotion = reduceMotion) {
+            Column {
+                Spacer(Modifier.height(12.dp))
+                ErrorBanner(lastParseError.value.orEmpty())
+            }
         }
         if (ui.parsing) {
             Spacer(Modifier.height(16.dp))
@@ -204,20 +214,30 @@ private fun ConfirmCard(ui: ModpackUiState) {
 }
 
 @Composable
-private fun ImportingCard(ui: ModpackUiState) {
+private fun ImportingCard(ui: ModpackUiState, reduceMotion: Boolean) {
     val pr = ui.progress
+    // Scene 7 (cancel): exit animation completes before ui.cancel() runs.
+    var cancelExiting by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         SectionHeader("正在导入")
         Spacer(Modifier.height(16.dp))
-        dev.mayo.ymcl.ui.components.InstallProgressCard(
-            stageName = pr.stage,
-            done = pr.doneFiles,
-            total = pr.totalFiles,
-            bytes = pr.doneBytes,
-            current = pr.currentFile,
-            cancelLabel = "取消导入",
-            onCancel = { ui.cancel() },
-        )
+        ExitBeforeRemove(
+            exiting = cancelExiting,
+            reduceMotion = reduceMotion,
+            onExitFinished = { ui.cancel() },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            dev.mayo.ymcl.ui.components.InstallProgressCard(
+                stageName = pr.stage,
+                done = pr.doneFiles,
+                total = pr.totalFiles,
+                bytes = pr.doneBytes,
+                totalBytes = pr.totalBytes,
+                current = pr.currentFile,
+                cancelLabel = "取消导入",
+                onCancel = { cancelExiting = true },
+            )
+        }
     }
 }
 
@@ -250,12 +270,17 @@ private fun DoneCard(state: AppState) {
 }
 
 @Composable
-private fun ErrorCard(ui: ModpackUiState) {
+private fun ErrorCard(ui: ModpackUiState, reduceMotion: Boolean) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize()) {
         SectionHeader("导入未完成")
         Spacer(Modifier.height(12.dp))
-        ui.error?.let { ErrorBanner(it) }
+        val errorText = ui.error
+        val lastError = remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(errorText) { if (errorText != null) lastError.value = errorText }
+        MotionVisibility(visible = errorText != null, reduceMotion = reduceMotion) {
+            ErrorBanner(lastError.value.orEmpty())
+        }
         if (ui.failures.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
             SectionHeader("失败清单", hint = "${ui.failures.size} 条")

@@ -31,7 +31,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,12 +55,16 @@ import dev.mayo.ymcl.ui.components.PageHeader
 import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.SectionHeader
 import dev.mayo.ymcl.ui.components.TonalButton
+import dev.mayo.ymcl.ui.motion.MotionVisibility
+import dev.mayo.ymcl.ui.motion.listItemEntrance
+import dev.mayo.ymcl.ui.motion.rememberReduceMotion
 import kotlinx.coroutines.delay
 
 @Composable
 fun GetContentPage(state: AppState) {
     val colors = MaterialTheme.colorScheme
     val ui = state.modrinthUi
+    val reduceMotion = rememberReduceMotion()
 
     // Entering the page searches the current query (blank -> popular feed).
     LaunchedEffect(Unit) { ui.search(ui.query) }
@@ -77,17 +83,27 @@ fun GetContentPage(state: AppState) {
         SearchRow(ui = ui)
         Spacer(Modifier.height(12.dp))
 
-        ui.error?.let { message ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.errorContainer)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                Text(message, fontSize = 12.sp, lineHeight = 18.sp, color = colors.onErrorContainer)
+        val errorText = ui.error
+        val lastError = remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(errorText) { if (errorText != null) lastError.value = errorText }
+        MotionVisibility(visible = errorText != null, reduceMotion = reduceMotion) {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.errorContainer)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        lastError.value.orEmpty(),
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                        color = colors.onErrorContainer,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
             }
-            Spacer(Modifier.height(8.dp))
         }
 
         if (ui.installing) {
@@ -116,7 +132,10 @@ fun GetContentPage(state: AppState) {
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
             ) {
-                if (ui.results.isEmpty()) {
+                MotionVisibility(
+                    visible = ui.results.isEmpty(),
+                    reduceMotion = reduceMotion,
+                ) {
                     Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
                         Text(
                             ui.error ?: "输入关键词搜索模组",
@@ -124,13 +143,23 @@ fun GetContentPage(state: AppState) {
                             color = colors.onSurfaceVariant,
                         )
                     }
-                } else {
-                    ui.results.forEach { row -> ResultRow(row = row, ui = ui) }
+                }
+                ui.results.forEachIndexed { index, row ->
+                    key(row.hit.projectId) {
+                        ResultRow(
+                            modifier = Modifier.listItemEntrance(index, reduceMotion),
+                            row = row,
+                            ui = ui,
+                        )
+                    }
                 }
             }
         }
 
-        ui.toast?.let { toast ->
+        val toastText = ui.toast
+        val lastToast = remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(toastText) { if (toastText != null) lastToast.value = toastText }
+        MotionVisibility(visible = toastText != null, reduceMotion = reduceMotion) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -138,7 +167,7 @@ fun GetContentPage(state: AppState) {
                     .background(colors.primaryContainer)
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
-                Text(toast, fontSize = 13.sp, color = colors.onPrimaryContainer)
+                Text(lastToast.value.orEmpty(), fontSize = 13.sp, color = colors.onPrimaryContainer)
             }
         }
     }
@@ -226,13 +255,17 @@ private fun formatDownloads(n: Long): String = when {
 }
 
 @Composable
-private fun ResultRow(row: ModrinthResultRow, ui: ModrinthUiState) {
+private fun ResultRow(
+    modifier: Modifier = Modifier,
+    row: ModrinthResultRow,
+    ui: ModrinthUiState,
+) {
     val colors = MaterialTheme.colorScheme
     val hit = row.hit
     val version = row.version
     val installed = hit.projectId in ui.installedProjectIds
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(84.dp)
             .clip(RoundedCornerShape(16.dp))

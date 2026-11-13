@@ -1,14 +1,15 @@
 package dev.mayo.ymcl.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -32,13 +33,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.mayo.ymcl.domain.InstanceStatus
+import dev.mayo.ymcl.ui.motion.CARD_HOVER_LIFT
+import dev.mayo.ymcl.ui.motion.CARD_PRESS_SCALE
+import dev.mayo.ymcl.ui.motion.effects
+import dev.mayo.ymcl.ui.motion.rememberReduceMotion
+import dev.mayo.ymcl.ui.motion.spatial
 
 /** Set from Settings → 减少动效; components snap instead of morphing when true. */
 val LocalReduceMotion = staticCompositionLocalOf { false }
@@ -46,10 +54,10 @@ val LocalReduceMotion = staticCompositionLocalOf { false }
 @Composable
 fun rememberMorphCorner(hovered: Boolean, selected: Boolean = false, base: Dp = 24.dp): Dp {
     val target = if (hovered || selected) 12.dp else base
-    if (LocalReduceMotion.current) return target
+    val reduceMotion = rememberReduceMotion()
     val animated by animateDpAsState(
         targetValue = target,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = 700f),
+        animationSpec = spatial(reduceMotion),
         label = "card-corner-morph",
     )
     return animated
@@ -148,10 +156,12 @@ fun PrimaryButton(
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    val reduceMotion = rememberReduceMotion()
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val background by animateColorAsState(
-        if (hovered) colors.primary.copy(alpha = 0.88f) else colors.primary,
+        targetValue = if (hovered) colors.primary.copy(alpha = 0.88f) else colors.primary,
+        animationSpec = effects(reduceMotion),
         label = "primary-button",
     )
     Row(
@@ -247,6 +257,7 @@ fun SegmentedControl(
     onSelect: (Int) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    val reduceMotion = rememberReduceMotion()
     Row(
         modifier = Modifier
             .width(width)
@@ -259,7 +270,8 @@ fun SegmentedControl(
         options.forEachIndexed { index, option ->
             val selected = index == selectedIndex
             val background by animateColorAsState(
-                if (selected) colors.primaryContainer else Color.Transparent,
+                targetValue = if (selected) colors.primaryContainer else Color.Transparent,
+                animationSpec = effects(reduceMotion),
                 label = "segment-bg",
             )
             Box(
@@ -286,13 +298,15 @@ fun SegmentedControl(
 @Composable
 fun YmclSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val reduceMotion = rememberReduceMotion()
     val track by animateColorAsState(
-        if (checked) colors.primary else colors.surfaceContainerHighest,
+        targetValue = if (checked) colors.primary else colors.surfaceContainerHighest,
+        animationSpec = effects(reduceMotion),
         label = "switch-track",
     )
     val thumbOffset by animateDpAsState(
-        if (checked) 22.dp else 2.dp,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = 900f),
+        targetValue = if (checked) 22.dp else 2.dp,
+        animationSpec = spatial(reduceMotion),
         label = "switch-thumb",
     )
     Box(
@@ -314,7 +328,12 @@ fun YmclSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     }
 }
 
-/** Clickable surface that morphs its corner radius on hover (and when selected). */
+/**
+ * Clickable surface that morphs its corner radius on hover (and when selected),
+ * lifts 2dp on hover and scales to 0.98 while pressed. All three are drawn in a
+ * graphicsLayer: the measured layout box (and therefore the click target) never
+ * changes size.
+ */
 @Composable
 fun MorphSurface(
     modifier: Modifier = Modifier,
@@ -323,10 +342,24 @@ fun MorphSurface(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
+    val reduceMotion = rememberReduceMotion()
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
     val corner = rememberMorphCorner(hovered = hovered, selected = selected)
     val shape = RoundedCornerShape(corner)
+    val density = LocalDensity.current
+    val liftPx = remember(density) { with(density) { CARD_HOVER_LIFT.toPx() } }
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) CARD_PRESS_SCALE else 1f,
+        animationSpec = spatial(reduceMotion),
+        label = "card-press-scale",
+    )
+    val lift by animateFloatAsState(
+        targetValue = if (hovered) -liftPx else 0f,
+        animationSpec = spatial(reduceMotion),
+        label = "card-hover-lift",
+    )
     val clickableModifier = if (onClick != null) {
         Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)
     } else {
@@ -334,6 +367,11 @@ fun MorphSurface(
     }
     Box(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationY = lift
+            }
             .clip(shape)
             .background(baseColor)
             .hoverable(interaction)

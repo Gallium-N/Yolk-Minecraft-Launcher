@@ -69,6 +69,8 @@ tasks.withType<JavaExec>().configureEach {
         "ymcl.qa.newinstance.start", "ymcl.qa.newinstance.stageDelayMs",
         "ymcl.qa.newinstance.cancelAtStage",
         "ymcl.qa.neoforge.unreachable", "ymcl.qa.page",
+        // QA-only: force reduceMotion without changing the persisted setting.
+        "ymcl.reduceMotion",
     ).forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }

@@ -24,6 +24,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,32 +48,52 @@ import dev.mayo.ymcl.ui.components.PageHeader
 import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.SectionHeader
 import dev.mayo.ymcl.ui.components.TonalButton
+import dev.mayo.ymcl.ui.motion.ExitBeforeRemove
+import dev.mayo.ymcl.ui.motion.MotionVisibility
+import dev.mayo.ymcl.ui.motion.rememberReduceMotion
 
 @Composable
 fun NewInstancePage(state: AppState) {
     val ui = state.newInstanceUi
+    val reduceMotion = rememberReduceMotion()
+    // Scene 7: the exit animation runs while this id is set; the backend delete
+    // is only triggered from the animation's finished callback.
+    var exitingId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { if (ui.versions.isEmpty()) ui.loadVersions() }
-    DeleteBrokenDialog(ui)
+    DeleteBrokenDialog(
+        ui = ui,
+        visible = exitingId == null,
+        onConfirm = { exitingId = ui.pendingDeleteId },
+    )
+    val finishDelete = {
+        ui.confirmDelete()
+        exitingId = null
+    }
     Column(Modifier.fillMaxSize()) {
         PageHeader(title = "新建实例", meta = "安装游戏版本 · ${ui.versions.size} 个版本")
         when (ui.step) {
-            Step.VERSION -> VersionStep(ui)
+            Step.VERSION -> VersionStep(ui, exitingId, reduceMotion, finishDelete)
             Step.LOADER -> LoaderStep(ui)
             Step.NAME -> NameStep(ui)
-            Step.INSTALLING -> InstallingStep(ui)
+            Step.INSTALLING -> InstallingStep(ui, reduceMotion)
             Step.DONE -> DoneStep(state)
-            Step.ERROR -> ErrorStep(ui)
+            Step.ERROR -> ErrorStep(ui, exitingId != null, reduceMotion, finishDelete)
         }
     }
 }
 
 @Composable
-private fun VersionStep(ui: NewInstanceUiState) {
+private fun VersionStep(
+    ui: NewInstanceUiState,
+    exitingId: String?,
+    reduceMotion: Boolean,
+    onDeleteExitFinished: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize()) {
         SectionHeader("选择游戏版本", hint = "来源：Mojang 版本清单（含缓存 / 离线回退）")
         Spacer(Modifier.height(12.dp))
-        BrokenInstallsCard(ui)
+        BrokenInstallsCard(ui, exitingId, reduceMotion, onDeleteExitFinished)
         Row(verticalAlignment = Alignment.CenterVertically) {
             SearchPill(ui.versionQuery, { ui.versionQuery = it }, "搜索版本号，例如 1.20.1", Modifier.weight(1f))
             Spacer(Modifier.width(12.dp))
@@ -98,31 +122,50 @@ private fun VersionStep(ui: NewInstanceUiState) {
  * They can be resumed from the error step, or discarded here with confirmation.
  */
 @Composable
-private fun BrokenInstallsCard(ui: NewInstanceUiState) {
+private fun BrokenInstallsCard(
+    ui: NewInstanceUiState,
+    exitingId: String?,
+    reduceMotion: Boolean,
+    onExitFinished: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
-    if (ui.brokenInstalls.isEmpty()) return
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(colors.errorContainer.copy(alpha = 0.18f))
-            .border(1.dp, colors.error.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-            .padding(16.dp),
-    ) {
-        Text(
-            "未完成的安装 · ${ui.brokenInstalls.size} 个",
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = colors.onSurface,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text("已下载文件可在下次安装时复用；删除会移除整个实例目录，不可恢复。", fontSize = 11.sp, color = colors.onSurfaceVariant)
-        Spacer(Modifier.height(10.dp))
-        ui.brokenInstalls.forEach { BrokenInstallRow(it, onDelete = { ui.requestDelete(it.id) }) }
-        ui.deleteError?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(it, fontSize = 11.sp, color = colors.error)
+    MotionVisibility(visible = ui.brokenInstalls.isNotEmpty(), reduceMotion = reduceMotion) {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                .background(colors.errorContainer.copy(alpha = 0.18f))
+                .border(1.dp, colors.error.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                .padding(16.dp),
+        ) {
+            Text(
+                "未完成的安装 · ${ui.brokenInstalls.size} 个",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "已下载文件可在下次安装时复用；删除会移除整个实例目录，不可恢复。",
+                fontSize = 11.sp,
+                color = colors.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            ui.brokenInstalls.forEach { item ->
+                ExitBeforeRemove(
+                    exiting = exitingId == item.id,
+                    reduceMotion = reduceMotion,
+                    onExitFinished = onExitFinished,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    BrokenInstallRow(item, onDelete = { ui.requestDelete(item.id) })
+                }
+            }
+            ui.deleteError?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, fontSize = 11.sp, color = colors.error)
+            }
         }
+        Spacer(Modifier.height(12.dp))
     }
-    Spacer(Modifier.height(12.dp))
 }
 
 @Composable
@@ -149,8 +192,9 @@ private fun BrokenInstallRow(item: BrokenInstall, onDelete: () -> Unit) {
 
 /** Confirmation shown before deleting one unfinished install. */
 @Composable
-private fun DeleteBrokenDialog(ui: NewInstanceUiState) {
+private fun DeleteBrokenDialog(ui: NewInstanceUiState, visible: Boolean, onConfirm: () -> Unit) {
     val id = ui.pendingDeleteId ?: return
+    if (!visible) return
     val colors = MaterialTheme.colorScheme
     val item = ui.brokenInstalls.firstOrNull { it.id == id }
     AlertDialog(
@@ -167,7 +211,7 @@ private fun DeleteBrokenDialog(ui: NewInstanceUiState) {
             }
         },
         confirmButton = {
-            PrimaryButton(text = "确认删除", width = 116.dp, onClick = { ui.confirmDelete() })
+            PrimaryButton(text = "确认删除", width = 116.dp, onClick = onConfirm)
         },
         dismissButton = {
             TonalButton(text = "取消", width = 88.dp, onClick = { ui.dismissDelete() })
@@ -301,19 +345,30 @@ private fun NameStep(ui: NewInstanceUiState) {
 }
 
 @Composable
-private fun InstallingStep(ui: NewInstanceUiState) {
+private fun InstallingStep(ui: NewInstanceUiState, reduceMotion: Boolean) {
+    // Scene 7 (cancel): the progress card fades + shrinks out BEFORE ui.cancel()
+    // stops the download and marks the install as unfinished.
+    var cancelExiting by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         SectionHeader("正在安装", hint = ui.instanceId)
         Spacer(Modifier.height(16.dp))
-        InstallProgressCard(
-            stageName = ui.stage.name,
-            done = ui.stage.done,
-            total = ui.stage.total,
-            bytes = ui.stage.bytes,
-            current = null,
-            cancelLabel = "取消安装",
-            onCancel = { ui.cancel() },
-        )
+        ExitBeforeRemove(
+            exiting = cancelExiting,
+            reduceMotion = reduceMotion,
+            onExitFinished = { ui.cancel() },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            InstallProgressCard(
+                stageName = ui.stage.name,
+                done = ui.stage.done,
+                total = ui.stage.total,
+                bytes = ui.stage.bytes,
+                totalBytes = ui.stage.totalBytes,
+                current = ui.stage.currentFile.takeIf { it.isNotBlank() },
+                cancelLabel = "取消安装",
+                onCancel = { cancelExiting = true },
+            )
+        }
     }
 }
 
@@ -335,35 +390,47 @@ private fun DoneStep(state: AppState) {
 }
 
 @Composable
-private fun ErrorStep(ui: NewInstanceUiState) {
+private fun ErrorStep(
+    ui: NewInstanceUiState,
+    exiting: Boolean,
+    reduceMotion: Boolean,
+    onExitFinished: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize()) {
-        SectionHeader("安装未完成")
-        Spacer(Modifier.height(12.dp))
-        ui.error?.let { ErrorBox(it, onRetry = null) }
-        if (ui.failures.isNotEmpty()) {
+    ExitBeforeRemove(
+        exiting = exiting,
+        reduceMotion = reduceMotion,
+        onExitFinished = onExitFinished,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            SectionHeader("安装未完成")
             Spacer(Modifier.height(12.dp))
-            SectionHeader("失败清单", hint = "${ui.failures.size} 条")
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                ui.failures.forEach { Text("• $it", fontSize = 12.sp, color = colors.error) }
+            ui.error?.let { ErrorBox(it, onRetry = null) }
+            if (ui.failures.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                SectionHeader("失败清单", hint = "${ui.failures.size} 条")
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                    ui.failures.forEach { Text("• $it", fontSize = 12.sp, color = colors.error) }
+                }
             }
-        }
-        Spacer(Modifier.height(20.dp))
-        Row {
-            PrimaryButton(text = "继续安装", width = 148.dp, onClick = { ui.start(resume = true) })
-            Spacer(Modifier.width(12.dp))
-            TonalButton(text = "重新选择", width = 120.dp, onClick = { ui.reset() })
-            Spacer(Modifier.width(12.dp))
-            OutlinedPillButton(
-                text = "删除未完成的安装",
-                width = 148.dp,
-                borderColor = colors.error.copy(alpha = 0.6f),
-                onClick = { ui.requestDelete(ui.lastInstanceId) },
-            )
-        }
-        ui.deleteError?.let {
-            Spacer(Modifier.height(10.dp))
-            Text(it, fontSize = 11.sp, color = colors.error)
+            Spacer(Modifier.height(20.dp))
+            Row {
+                PrimaryButton(text = "继续安装", width = 148.dp, onClick = { ui.start(resume = true) })
+                Spacer(Modifier.width(12.dp))
+                TonalButton(text = "重新选择", width = 120.dp, onClick = { ui.reset() })
+                Spacer(Modifier.width(12.dp))
+                OutlinedPillButton(
+                    text = "删除未完成的安装",
+                    width = 148.dp,
+                    borderColor = colors.error.copy(alpha = 0.6f),
+                    onClick = { ui.requestDelete(ui.lastInstanceId) },
+                )
+            }
+            ui.deleteError?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, fontSize = 11.sp, color = colors.error)
+            }
         }
     }
 }

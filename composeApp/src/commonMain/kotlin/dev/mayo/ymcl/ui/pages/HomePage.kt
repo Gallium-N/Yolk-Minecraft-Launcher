@@ -28,6 +28,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,10 +56,14 @@ import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.SectionHeader
 import dev.mayo.ymcl.ui.components.StatusChip
 import dev.mayo.ymcl.ui.icons.YmclIcons
+import dev.mayo.ymcl.ui.motion.MotionVisibility
+import dev.mayo.ymcl.ui.motion.listItemEntrance
+import dev.mayo.ymcl.ui.motion.rememberReduceMotion
 
 @Composable
 fun HomePage(state: AppState) {
     val now = nowMillis()
+    val reduceMotion = rememberReduceMotion()
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val contentWidth = maxWidth
@@ -70,12 +79,19 @@ fun HomePage(state: AppState) {
                 title = "启动台",
                 meta = "${state.instances.size} 个实例 · ${state.updateCount} 个可更新",
             )
-            if (state.instances.isEmpty()) {
+            MotionVisibility(
+                visible = state.instances.isEmpty(),
+                reduceMotion = reduceMotion,
+            ) {
                 HomeEmptyState(
                     heroHeight = heroHeight,
                     onGetContent = { state.navigate(AppPage.GET_CONTENT) },
                 )
-            } else {
+            }
+            MotionVisibility(
+                visible = state.instances.isNotEmpty(),
+                reduceMotion = reduceMotion,
+            ) {
                 HeroCard(
                     state = state,
                     now = now,
@@ -83,9 +99,14 @@ fun HomePage(state: AppState) {
                     statSpacing = statSpacing,
                 )
             }
-            state.launchError?.let { error ->
-                Spacer(Modifier.height(16.dp))
-                LaunchErrorCard(error)
+            val errorText = state.launchError
+            val lastError = remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(errorText) { if (errorText != null) lastError.value = errorText }
+            MotionVisibility(visible = errorText != null, reduceMotion = reduceMotion) {
+                Column {
+                    Spacer(Modifier.height(16.dp))
+                    LaunchErrorCard(lastError.value.orEmpty())
+                }
             }
             // 0 实例时「最近实例」分组只剩一条空的「所有实例」bar，左右都空白，
             // 观感像渲染丢失；此时整组连同标题一起隐藏，只留 Hero 的引导文案。
@@ -295,9 +316,16 @@ private fun RecentInstancesColumn(
         Spacer(Modifier.height(16.dp))
 
         val recent = state.recentInstances
-        recent.forEach { instance ->
-            RecentInstanceCard(instance = instance, now = now) {
-                state.selectInstance(instance.id)
+        val reduceMotion = rememberReduceMotion()
+        recent.forEachIndexed { index, instance ->
+            key(instance.id) {
+                RecentInstanceCard(
+                    modifier = Modifier.listItemEntrance(index, reduceMotion),
+                    instance = instance,
+                    now = now,
+                ) {
+                    state.selectInstance(instance.id)
+                }
             }
             Spacer(Modifier.height(if (compact) 8.dp else 16.dp))
         }
@@ -309,10 +337,15 @@ private fun RecentInstancesColumn(
 }
 
 @Composable
-private fun RecentInstanceCard(instance: InstanceSummary, now: Long, onClick: () -> Unit) {
+private fun RecentInstanceCard(
+    modifier: Modifier = Modifier,
+    instance: InstanceSummary,
+    now: Long,
+    onClick: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     MorphSurface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(144.dp),
         baseColor = colors.surfaceContainerLow,
