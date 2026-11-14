@@ -1,0 +1,75 @@
+name: build
+
+on:
+  push:
+    branches: [ci/windows, motion, main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Linux · build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build and test
+        env:
+          GRADLE_OPTS: -Xmx3g
+        run: ./gradlew build --no-daemon --stacktrace
+
+  windows-portable:
+    name: Windows · portable app-image
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: createDistributable
+        shell: bash
+        env:
+          GRADLE_OPTS: -Xmx3g
+        run: ./gradlew :composeApp:createDistributable --no-daemon --stacktrace
+      - name: Show app image layout
+        shell: pwsh
+        run: Get-ChildItem -Recurse -Depth 2 composeApp/build/compose/binaries/main/app | Select-Object FullName
+      - name: Zip app image
+        shell: pwsh
+        run: |
+          $app = Get-ChildItem -Path composeApp/build/compose/binaries/main/app -Directory | Select-Object -First 1
+          Write-Host "app dir: $($app.FullName)"
+          Compress-Archive -Path (Join-Path $app.FullName '*') -DestinationPath YMCL-windows-x64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YMCL-windows-x64-portable
+          path: YMCL-windows-x64.zip
+          retention-days: 14
+
+  windows-msi:
+    name: Windows · MSI installer (best effort)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: packageMsi
+        shell: bash
+        env:
+          GRADLE_OPTS: -Xmx3g
+        run: ./gradlew :composeApp:packageMsi --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YMCL-windows-x64-msi
+          path: composeApp/build/compose/binaries/main/msi/*.msi
+          if-no-files-found: warn
+          retention-days: 14
