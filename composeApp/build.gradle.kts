@@ -52,6 +52,12 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb)
             packageName = "YMCL"
             packageVersion = "1.0.0"
+            // Ship every JDK module. The trimmed default set lacks java.net.http (HttpClient),
+            // jdk.crypto.ec (TLS), jdk.charsets (GBK/CP936 fallback) and others the launcher
+            // genuinely uses at runtime; a missing module surfaces as an unhelpful
+            // "Failed to launch JVM" or NoClassDefFoundError on a user's machine.
+            // Trim later with `jdeps --print-module-deps` once the feature set is frozen.
+            includeAllModules = true
             windows {
                 // -Pymcl.console=true: console build, so JVM startup failures are visible
                 // instead of a bare "Failed to launch JVM" dialog. Debug artifacts only.
