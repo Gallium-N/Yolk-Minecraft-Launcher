@@ -52,6 +52,11 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb)
             packageName = "YMCL"
             packageVersion = "1.0.0"
+            windows {
+                // -Pymcl.console=true: console build, so JVM startup failures are visible
+                // instead of a bare "Failed to launch JVM" dialog. Debug artifacts only.
+                console = project.hasProperty("ymcl.console")
+            }
         }
     }
 }
