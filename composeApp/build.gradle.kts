@@ -202,6 +202,22 @@ tasks.register<JavaExec>("coldPathSelfCheck") {
     }
 }
 
+// P5 wrap-up: real mrpack import (base / loader / files) + real HmclEngine launch,
+// waiting for the Forge / NeoForge main-menu marker and a window-scoped screenshot.
+tasks.register<JavaExec>("modpackE2ESelfCheck") {
+    group = "verification"
+    description = "Runs the P5 Forge/NeoForge modpack end-to-end self-check."
+    val mainCompilation = kotlin.targets.getByName("desktop").compilations.getByName("main")
+    classpath = mainCompilation.output.allOutputs + mainCompilation.runtimeDependencyFiles
+    mainClass.set("dev.mayo.ymcl.ModpackE2ESelfCheckKt")
+    listOf(
+        "ymcl.p5.pack", "ymcl.p5.root", "ymcl.p5.shot", "ymcl.p5.expected",
+        "ymcl.p5.launchOnly", "ymcl.p5.mc", "ymcl.game.root", "ymcl.theme",
+    ).forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+}
+
 // P4 step-0 end-to-end: one shared gameRoot, three version-isolated instances.
 // Override the seed / gameRoot with -Dymcl.* if the P3 install lives elsewhere.
 tasks.register<JavaExec>("installE2ESelfCheck") {
