@@ -17,6 +17,7 @@
 | NeoForge 可达时真机装 1.20.4 并启动 | `mode=neoforge -Dymcl.v2.mc=1.20.4 -Dymcl.v2.loaderVersion=20.4.253`：`Successfully installed client`、`自包含 profile libraries=137`、`NeoForge mod loading, version 20.4.253, for MC 1.20.4`、`V2_OK mode=neoforge`；`p3-neoforge-menu.png` | ✅ |
 | Forge `launcher_profiles.json` 补写 + 117 库自包含 profile | 单测 `forge writes launcher_profiles and a self contained 117 library profile` 断言 `libraries=117`、无 `inheritsFrom`、`jar=Forge-Test`、含 `forgeclient` | ✅ |
 | 四种 kind 进 LoaderKind / 实例加载器列 / 整合包 dependencies 映射 | `domain/Loader.kt:4`、`InstanceSummary.loaderLine`、`ModpackParser.loaderFromDependencies`、`ModpackBackendImpl.installBase` 统一调用 | ✅ |
+| **整合包 Forge 端到端（P5 本轮补证）** | 合成 mrpack（`1.20.1`+`forge:47.2.0`，JEI forge 文件 url/sha1/size 现场查 Modrinth API）：`modpackE2ESelfCheck` → `IMPORT … loader=forge 47.2.0 files=1 failures=0` → 实例 `instance.json` (`schemaVersion:1`) + 自包含 profile + jei jar sha1 一致 → `Launching target 'forgeclient'` / `Forge mod loading, version 47.2.0` → 主菜单左下 `Forge 47.2.0` / `4 mods loaded`；`build/p5-shots/p5-forge-menu-final.png`、`p5-import-confirm-final.png`、`p5-forge-launch-final.log`；详见 `docs/p5-report.md` §4.1 | ✅ |
 
 ## B. 老版本 virtual / map_to_resources assets
 

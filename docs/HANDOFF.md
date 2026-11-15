@@ -51,7 +51,15 @@ P2 已验证：15 个本地版本（首屏 12 行、其余滚动；最终启动�
 > P3 v2「不留欠债」已完成：四种加载器生产化、老版本 virtual assets、Java 矩阵、
 > 传输层续传 / bmclapi-hash / official-only、基座 role / 真实 modCount / 启动宏、
 > 整合包并行导入、新建实例向导。证据与未跑项见 `docs/p3-capability-matrix.md`、
-> tag `p3-v2`。P4/P5 亦已完成，不再列为下一步。
+> tag `p3-v2`。P4 已完成，不再列为下一步。
+>
+> **P5 整合包收尾：部分完成（证据见 `docs/p5-report.md`，tag `p5-v2`）**——
+> Forge mrpack 端到端（导入→实例→启动→主菜单 `Forge 47.2.0`）已真机验证；
+> 仍有缺口：NeoForge 1.21.1 端到端因 `maven.neoforged.net` 单主机不可达（❌ 网络不可达）、
+> 拖放因 rootless XWayland 下 Compose 窗口不接受 XDND 且本机缺 Xephyr/嵌套 X
+> 仅做到真实事件发送 + 独立 AWT 对照（⚠️ 未真机验证）、CurseForge 无真包未验证（❌，3 单测覆盖代码）。
+> `Java selected … reason=` 日志行口径待 DSH 确认（P7 交付物，见 `docs/p5-report.md` §6）。
+> **不要把 P5 写成「已完成」**：这三项没有闭环证据。
 
 1. **P6 诊断**：类名→jar 索引、元数据指纹、规则证据链、Mixin 冲突。
    验收：拿真实 crash-report 给出结论 + 证据 + 一键处置。
@@ -170,5 +178,9 @@ composeApp/build/compose/binaries/main/app/YMCL/bin/YMCL
 - `p3-v2`：**P3「不留欠债」完成点**（四加载器 / virtual assets / Java 矩阵 / 传输补齐 /
   界面三错 / 并行导入 / 新建实例向导；`docs/p3-capability-matrix.md` 入库）。
   P6 请从 `p3-v2` 开新分支。
+- `p5-complete`：**旧的历史事实**（指向 `6383f74` 的 P3 任务书提交，不是 P5 收尾），
+  **保持不动**、不移动、不改写。
+- `p5-v2`：**P5 收尾点**（`docs/p5-report.md` 入库后的提交；Forge 整合包端到端证据 +
+  NeoForge ❌ / 拖放 ⚠️ / CF ❌ 的如实缺口）。P5 为部分完成，见 §4。
 回退：`git switch main && git branch -D p2-engine` 丢弃 P2；
 `git switch -c retry p1-baseline` 从 P1 重开；单步用 `git revert <hash>`。
