@@ -17,8 +17,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,7 +38,9 @@ import dev.mayo.ymcl.app.ModpackPlan
 import dev.mayo.ymcl.app.ModpackUiState
 import dev.mayo.ymcl.app.ModpackUiState.Stage
 import dev.mayo.ymcl.platform.pickModpackFile
+import dev.mayo.ymcl.ui.components.ErrorBanner
 import dev.mayo.ymcl.ui.components.IconCircle
+import dev.mayo.ymcl.ui.components.LoadingIndicator
 import dev.mayo.ymcl.ui.components.OutlinedPillButton
 import dev.mayo.ymcl.ui.components.PageHeader
 import dev.mayo.ymcl.ui.components.PrimaryButton
@@ -154,11 +154,7 @@ private fun PickCard(ui: ModpackUiState, reduceMotion: Boolean) {
         }
         if (ui.parsing) {
             Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
-                Text("正在解析整合包…", fontSize = 13.sp, color = colors.onSurfaceVariant)
-            }
+            LoadingIndicator(text = "正在解析整合包")
         }
     }
 }
@@ -315,20 +311,6 @@ private fun ErrorCard(ui: ModpackUiState, reduceMotion: Boolean) {
         }
         Spacer(Modifier.height(20.dp))
         PrimaryButton(text = "重新选择", width = 148.dp, onClick = { ui.reset() })
-    }
-}
-
-@Composable
-private fun ErrorBanner(message: String) {
-    val colors = MaterialTheme.colorScheme
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(colors.errorContainer)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Text(message, fontSize = 12.sp, lineHeight = 18.sp, color = colors.onErrorContainer)
     }
 }
 

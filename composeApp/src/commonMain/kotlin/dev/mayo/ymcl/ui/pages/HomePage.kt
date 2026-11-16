@@ -53,10 +53,11 @@ import dev.mayo.ymcl.app.formatPlayTime
 import dev.mayo.ymcl.platform.formatLastLaunch
 import dev.mayo.ymcl.platform.nowMillis
 import dev.mayo.ymcl.ui.components.CircleButton
+import dev.mayo.ymcl.ui.components.EmptyStateView
+import dev.mayo.ymcl.ui.components.ErrorBanner
 import dev.mayo.ymcl.ui.components.IconCircle
 import dev.mayo.ymcl.ui.components.MorphSurface
 import dev.mayo.ymcl.ui.components.PageHeader
-import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.SectionHeader
 import dev.mayo.ymcl.ui.components.StatusChip
 import dev.mayo.ymcl.ui.icons.YmclIcons
@@ -89,7 +90,7 @@ fun HomePage(state: AppState) {
             ) {
                 HomeEmptyState(
                     heroHeight = heroHeight,
-                    onGetContent = { state.navigate(AppPage.GET_CONTENT) },
+                    onInstall = { state.openInstallGame() },
                 )
             }
             MotionVisibility(
@@ -109,7 +110,7 @@ fun HomePage(state: AppState) {
             MotionVisibility(visible = errorText != null, reduceMotion = reduceMotion) {
                 Column {
                     Spacer(Modifier.height(16.dp))
-                    LaunchErrorCard(lastError.value.orEmpty())
+                    ErrorBanner(message = lastError.value.orEmpty())
                 }
             }
             // 0 实例时「最近实例」分组只剩一条空的「所有实例」bar，左右都空白，
@@ -130,7 +131,10 @@ fun HomePage(state: AppState) {
                     GetContentColumn(
                         modifier = Modifier.width(rightWidth).fillMaxHeight(),
                         compact = compact,
-                        onBrowse = { state.navigate(AppPage.GET_CONTENT) },
+                        onInstall = { state.openInstallGame() },
+                        onBrowse = { state.openGetMods() },
+                        onImport = { state.navigate(AppPage.IMPORT) },
+                        onOpenFolder = { state.mainInstance?.let { state.openInstanceFolder(it.id) } },
                     )
                 }
             }
@@ -231,7 +235,7 @@ private fun HeroCard(
 
 /** 空 gameRoot：显示「还没有实例」，不崩、不白屏。 */
 @Composable
-private fun HomeEmptyState(heroHeight: Dp, onGetContent: () -> Unit) {
+private fun HomeEmptyState(heroHeight: Dp, onInstall: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
@@ -245,47 +249,11 @@ private fun HomeEmptyState(heroHeight: Dp, onGetContent: () -> Unit) {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "还没有实例",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = colors.onPrimaryContainer,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "在「获取内容」里安装一个游戏版本，开始你的第一个世界。",
-                fontSize = 13.sp,
-                color = colors.onPrimaryContainer.copy(alpha = 0.78f),
-            )
-            Spacer(Modifier.height(20.dp))
-            PrimaryButton(text = "获取内容", width = 148.dp, onClick = onGetContent)
-        }
-    }
-}
-
-@Composable
-private fun LaunchErrorCard(message: String) {
-    val colors = MaterialTheme.colorScheme
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(colors.errorContainer)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-    ) {
-        Text(
-            text = "启动失败",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = colors.onErrorContainer,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = message,
-            fontSize = 12.sp,
-            lineHeight = 18.sp,
-            color = colors.onErrorContainer,
+        EmptyStateView(
+            title = "还没有实例",
+            message = "安装一个游戏版本开始使用",
+            buttonText = "安装游戏",
+            onAction = onInstall,
         )
     }
 }
@@ -491,7 +459,10 @@ private val CONTENT_ROWS = listOf(
 private fun GetContentColumn(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    onBrowse: () -> Unit = {},
+    onInstall: () -> Unit,
+    onBrowse: () -> Unit,
+    onImport: () -> Unit,
+    onOpenFolder: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Column(modifier) {
@@ -506,10 +477,17 @@ private fun GetContentColumn(
                 .padding(vertical = if (compact) 12.dp else 18.dp),
         ) {
             CONTENT_ROWS.forEachIndexed { index, row ->
+                // Every row has a real destination: no "clicked, nothing happened".
+                val onClick: () -> Unit = when (row.title) {
+                    "下载游戏版本" -> onInstall
+                    "打开实例文件夹" -> onOpenFolder
+                    "浏览模组与整合包" -> onBrowse
+                    else -> onImport
+                }
                 ContentPanelRow(
                     row = row,
                     showDivider = index != CONTENT_ROWS.lastIndex,
-                    onClick = if (row.title == "浏览模组与整合包") onBrowse else null,
+                    onClick = onClick,
                 )
             }
         }

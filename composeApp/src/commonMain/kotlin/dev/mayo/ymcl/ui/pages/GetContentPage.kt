@@ -23,51 +23,74 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.mayo.ymcl.app.AppState
 import dev.mayo.ymcl.app.ModrinthDialog
 import dev.mayo.ymcl.app.ModrinthResultRow
 import dev.mayo.ymcl.app.ModrinthUiState
+import dev.mayo.ymcl.ui.components.EmptyStateView
+import dev.mayo.ymcl.ui.components.ErrorBanner
+import dev.mayo.ymcl.ui.components.LoadingIndicator
+import dev.mayo.ymcl.ui.components.LoadingSkeleton
 import dev.mayo.ymcl.ui.components.OutlinedPillButton
 import dev.mayo.ymcl.ui.components.PageHeader
 import dev.mayo.ymcl.ui.components.PrimaryButton
 import dev.mayo.ymcl.ui.components.SectionHeader
+import dev.mayo.ymcl.ui.components.SegmentedControl
 import dev.mayo.ymcl.ui.components.TonalButton
 import dev.mayo.ymcl.ui.motion.MotionVisibility
 import dev.mayo.ymcl.ui.motion.listItemEntrance
 import dev.mayo.ymcl.ui.motion.rememberReduceMotion
 import kotlinx.coroutines.delay
 
+private val GET_CONTENT_TABS = listOf("安装游戏版本", "获取模组")
+
 @Composable
 fun GetContentPage(state: AppState) {
+    val reduceMotion = rememberReduceMotion()
+    Column(Modifier.fillMaxSize()) {
+        PageHeader(title = "获取内容", meta = "安装游戏版本 · 获取模组")
+        SegmentedControl(
+            options = GET_CONTENT_TABS,
+            selectedIndex = state.getContentTab,
+            width = 320.dp,
+            onSelect = { state.getContentTab = it },
+        )
+        Spacer(Modifier.height(16.dp))
+        when (state.getContentTab) {
+            0 -> Box(Modifier.weight(1f).fillMaxWidth()) { NewInstanceWizard(state) }
+            else -> ModSearchBody(state = state, reduceMotion = reduceMotion, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+/** Tab 1: the original Modrinth mod search, using the shared feedback components. */
+@Composable
+private fun ModSearchBody(state: AppState, reduceMotion: Boolean, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val ui = state.modrinthUi
-    val reduceMotion = rememberReduceMotion()
 
-    // Entering the page searches the current query (blank -> popular feed).
+    // Entering the tab searches the current query (blank -> popular feed).
     LaunchedEffect(Unit) { ui.search(ui.query) }
     LaunchedEffect(ui.toast) {
         if (ui.toast != null) {
@@ -76,9 +99,7 @@ fun GetContentPage(state: AppState) {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        PageHeader(title = "获取内容", meta = "Modrinth 模组 · ${state.instances.size} 个实例")
-
+    Column(modifier.fillMaxSize()) {
         InstanceSelector(ui = ui, instances = state.instances)
         Spacer(Modifier.height(12.dp))
         SearchRow(ui = ui)
@@ -89,71 +110,48 @@ fun GetContentPage(state: AppState) {
         LaunchedEffect(errorText) { if (errorText != null) lastError.value = errorText }
         MotionVisibility(visible = errorText != null, reduceMotion = reduceMotion) {
             Column {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.errorContainer)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                ) {
-                    Text(
-                        lastError.value.orEmpty(),
-                        fontSize = 12.sp,
-                        lineHeight = 18.sp,
-                        color = colors.onErrorContainer,
-                    )
-                }
+                ErrorBanner(
+                    message = lastError.value.orEmpty(),
+                    onRetry = { ui.search(ui.query) },
+                )
                 Spacer(Modifier.height(8.dp))
             }
         }
 
         if (ui.installing) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                LinearProgressIndicator(modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(12.dp))
-                Text(ui.progressFile ?: "正在安装…", fontSize = 12.sp, color = colors.onSurfaceVariant)
-            }
+            LoadingIndicator(text = ui.progressFile ?: "正在安装")
             Spacer(Modifier.height(8.dp))
         }
 
-        if (ui.loading && ui.results.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text("正在搜索 Modrinth…", fontSize = 13.sp, color = colors.onSurfaceVariant)
-                }
-            }
-        } else {
-            SectionHeader("搜索结果", hint = if (ui.query.isBlank()) "热门模组" else "关键词：${ui.query}")
-            Spacer(Modifier.height(8.dp))
-            Column(
-                // Search-results list scrolls INSIDE a weight(1f) bounded area;
-                // page header + instance selector above stay fixed. List-internal.
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                MotionVisibility(
-                    visible = ui.results.isEmpty(),
-                    reduceMotion = reduceMotion,
+        when {
+            ui.loading && ui.results.isEmpty() -> LoadingSkeleton(rows = 3)
+            else -> {
+                SectionHeader("搜索结果", hint = if (ui.query.isBlank()) "热门模组" else "关键词：${ui.query}")
+                Spacer(Modifier.height(8.dp))
+                Column(
+                    // Search-results list scrolls INSIDE a weight(1f) bounded area;
+                    // page header + instance selector above stay fixed. List-internal.
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
                 ) {
-                    Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
-                        Text(
-                            ui.error ?: "输入关键词搜索模组",
-                            fontSize = 13.sp,
-                            color = colors.onSurfaceVariant,
+                    if (ui.results.isEmpty()) {
+                        EmptyStateView(
+                            title = "没有模组",
+                            message = "换个关键词试试",
+                            buttonText = "重试",
+                            onAction = { ui.search(ui.query) },
                         )
                     }
-                }
-                ui.results.forEachIndexed { index, row ->
-                    key(row.hit.projectId) {
-                        ResultRow(
-                            modifier = Modifier.listItemEntrance(index, reduceMotion),
-                            row = row,
-                            ui = ui,
-                        )
+                    ui.results.forEachIndexed { index, row ->
+                        key(row.hit.projectId) {
+                            ResultRow(
+                                modifier = Modifier.listItemEntrance(index, reduceMotion),
+                                row = row,
+                                ui = ui,
+                            )
+                        }
                     }
                 }
             }
@@ -230,7 +228,7 @@ private fun SearchRow(ui: ModrinthUiState) {
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f)) {
                 if (ui.query.isEmpty()) {
-                    Text("搜索模组（留空显示热门）", fontSize = 13.sp, color = colors.onSurfaceVariant)
+                    Text("搜索模组", fontSize = 13.sp, color = colors.onSurfaceVariant)
                 }
                 BasicTextField(
                     value = ui.query,
@@ -246,8 +244,6 @@ private fun SearchRow(ui: ModrinthUiState) {
         }
         Spacer(Modifier.width(12.dp))
         PrimaryButton(text = "搜索", width = 120.dp, onClick = { ui.search(ui.query) })
-        Spacer(Modifier.width(12.dp))
-        OutlinedPillButton(text = "模组", width = 88.dp, onClick = { })
     }
 }
 

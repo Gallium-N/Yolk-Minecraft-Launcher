@@ -98,6 +98,7 @@ fun main() = application {
             newInstance = newInstance,
             initialCurseForgeApiKey = settings.curseForgeApiKey(),
             initialAllowCurseToolsProxy = settings.allowCurseToolsProxy(),
+            loaderProbeTimeoutMs = System.getProperty("ymcl.qa.loader.timeoutMs")?.toLongOrNull() ?: 8_000L,
             persistModpackSettings = { key, proxy -> settings.saveModpackSettings(key, proxy) },
         )
     }
@@ -115,6 +116,7 @@ fun main() = application {
     val qaNewLoader = System.getProperty("ymcl.qa.newinstance.loader")
     val qaNewStart = System.getProperty("ymcl.qa.newinstance.start") == "1"
     val qaPage = System.getProperty("ymcl.qa.page")
+    val qaGetContentTab = System.getProperty("ymcl.qa.getcontent.tab")?.toIntOrNull()
 
     // Do not pin the size through WindowState: a tiling compositor may map the
     // window larger first and re-applying a size would draw only in the corner.
@@ -176,6 +178,10 @@ fun main() = application {
                 AppPage.entries.firstOrNull { it.name.equals(qaPage, true) }?.let { state.navigate(it) }
             }
         }
+        // QA-only: preselect the 获取内容 tab (0 = 安装游戏版本, 1 = 获取模组).
+        LaunchedEffect(qaGetContentTab) {
+            if (qaGetContentTab != null) state.getContentTab = qaGetContentTab
+        }
         // QA-only: exercise the exact same AppState.launch path a button uses.
         LaunchedEffect(autoLaunch) {
             autoLaunch?.takeIf { it.isNotBlank() }?.let { state.launch(it) }
@@ -185,7 +191,7 @@ fun main() = application {
             if (qaSearch == null) return@LaunchedEffect
             qaInstance?.let { state.modrinthUi.selectedInstanceId = it }
             state.modrinthUi.query = qaSearch
-            state.navigate(AppPage.GET_CONTENT)
+            state.openGetMods()
             withTimeoutOrNull(45_000) { while (!state.modrinthUi.loading) delay(50) }
             withTimeoutOrNull(45_000) { while (state.modrinthUi.loading) delay(200) }
             delay(500)

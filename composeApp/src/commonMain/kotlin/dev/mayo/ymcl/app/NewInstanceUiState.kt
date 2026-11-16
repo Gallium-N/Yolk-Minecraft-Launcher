@@ -8,7 +8,9 @@ import dev.mayo.ymcl.domain.LoaderKind
 import dev.mayo.ymcl.domain.VersionEntry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** State + orchestration for the 5-step "new instance" wizard (section G). */
@@ -17,10 +19,29 @@ class NewInstanceUiState(
     private val onFinished: (String) -> Unit,
     private val onInstancesChanged: () -> Unit = {},
     private val log: (String) -> Unit = ::println,
+    private val loaderProbeTimeoutMs: Long = 8_000L,
 ) {
     enum class Step { VERSION, LOADER, NAME, INSTALLING, DONE, ERROR }
 
+    /** Result of the loader-availability probe started the moment a version is picked. */
+    enum class Probe { IDLE, LOADING, OK, EMPTY, TIMEOUT, FAILED }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // The probe is purely presentational: it never feeds install() and never
+    // changes the default loader (still vanilla). It exists so a version click
+    // has an instant, cancellable loading/error/success cycle (P0.2 §3).
+    var probe by mutableStateOf(Probe.IDLE)
+        private set
+    var probeVersions by mutableStateOf<List<String>>(emptyList())
+        private set
+    var probeError by mutableStateOf("")
+        private set
+    private var probeJob: Job? = null
+    // Bumped on every probe/loader request; late results from a superseded
+    // request are ignored so clicks never stack up.
+    private var probeGeneration = 0L
+    private var loaderGeneration = 0L
 
     var step by mutableStateOf(Step.VERSION)
         private set
@@ -140,13 +161,86 @@ class NewInstanceUiState(
     }
 
     fun selectVersion(v: VersionEntry) {
+        // Cancel any previous probe AND invalidate any in-flight loader fetch:
+        // clicking a second version switches directly, requests never stack up.
+        probeJob?.cancel()
+        loaderGeneration++
         selectedVersion = v
         neoForgeReachable = backend?.neoForgeReachable() ?: true
+        loaderKind = LoaderKind.VANILLA
+        selectedLoaderVersion = null
+        loaderVersions = emptyList()
+        loaderStatus = ""
+        loadingLoaders = false
+        // Switch to the next step IMMEDIATELY (skeleton, not blank), then probe.
         step = Step.LOADER
-        selectLoader(LoaderKind.VANILLA)
+        proposeName()
+        probeLoaders(v.id)
+    }
+
+    /** Re-runs the loader probe after a transient failure. */
+    fun retryProbe() {
+        val mc = selectedVersion?.id ?: return
+        probeLoaders(mc)
+    }
+
+    /** Error action: leave the loader step and go back to the version list. */
+    fun backToVersions() {
+        probeJob?.cancel()
+        loaderGeneration++
+        probe = Probe.IDLE
+        step = Step.VERSION
+    }
+
+    private fun probeLoaders(mc: String) {
+        probeJob?.cancel()
+        val gen = ++probeGeneration
+        probe = Probe.LOADING
+        probeError = ""
+        probeVersions = emptyList()
+        val b = backend
+        if (b == null) {
+            probe = Probe.FAILED
+            probeError = "加载器数据未就绪；点重试或返回列表。"
+            return
+        }
+        probeJob = scope.launch {
+            // The backend meta fetch is a BLOCKING java.net call with its own
+            // retry loop (connect 20s / read 60s), so coroutine cancellation
+            // cannot interrupt it. A separate watchdog enforces the hard 8s
+            // deadline; a generation token discards any late result.
+            launch {
+                delay(loaderProbeTimeoutMs)
+                if (probeGeneration == gen && probe == Probe.LOADING) {
+                    probe = Probe.TIMEOUT
+                    probeError = "maven.fabricmc.net 超时（${loaderProbeTimeoutMs / 1000}s）；点重试或返回列表。"
+                }
+            }
+            val outcome = runCatching { b.loaderVersions(LoaderKind.FABRIC, mc) }
+            if (probeGeneration != gen || probe != Probe.LOADING) return@launch
+            when {
+                outcome.isFailure -> {
+                    probe = Probe.FAILED
+                    probeError = "Fabric 版本拉取失败：${outcome.exceptionOrNull()?.message}；点重试或返回列表。"
+                }
+                outcome.getOrNull().isNullOrEmpty() -> {
+                    probe = Probe.EMPTY
+                    probeError = "该版本没有 Fabric 构建；选原版或返回列表。"
+                }
+                else -> {
+                    probeVersions = outcome.getOrNull()!!.take(8)
+                    probe = Probe.OK
+                }
+            }
+        }
     }
 
     fun selectLoader(kind: LoaderKind) {
+        // A manual loader choice ends the probe phase; cancel it so requests
+        // never stack up (P0.2 §3).
+        probeJob?.cancel()
+        probe = Probe.IDLE
+        probeError = ""
         loaderKind = kind
         selectedLoaderVersion = null
         loaderVersions = emptyList()
@@ -162,19 +256,34 @@ class NewInstanceUiState(
         }
         val b = backend ?: return
         val mc = selectedVersion?.id ?: return
+        val gen = ++loaderGeneration
         loadingLoaders = true
         scope.launch {
-            try {
-                val list = b.loaderVersions(kind, mc)
-                loaderVersions = list
-                selectedLoaderVersion = list.firstOrNull()
-                loaderStatus = if (list.isEmpty()) "没有可用的 ${kind.displayName} 版本" else ""
-            } catch (e: Exception) {
-                loaderStatus = "${kind.displayName} 版本列表拉取失败：${e.message}"
-            } finally {
-                loadingLoaders = false
-                proposeName()
+            // Same watchdog as the probe: blocking meta fetch cannot be
+            // cancelled, so enforce the 8s deadline independently and ignore
+            // late/superseded results.
+            launch {
+                delay(loaderProbeTimeoutMs)
+                if (loaderGeneration == gen && loadingLoaders) {
+                    loadingLoaders = false
+                    loaderStatus = "${kind.displayName} 源超时（${loaderProbeTimeoutMs / 1000}s）；重试或切换加载器"
+                    proposeName()
+                }
             }
+            val outcome = runCatching { b.loaderVersions(kind, mc) }
+            if (loaderGeneration != gen || !loadingLoaders) return@launch
+            when {
+                outcome.isFailure -> loaderStatus = "${kind.displayName} 版本拉取失败：${outcome.exceptionOrNull()?.message}"
+                outcome.getOrNull().isNullOrEmpty() -> loaderStatus = "没有可用的 ${kind.displayName} 版本"
+                else -> {
+                    val list = outcome.getOrNull()!!
+                    loaderVersions = list
+                    selectedLoaderVersion = list.firstOrNull()
+                    loaderStatus = ""
+                }
+            }
+            loadingLoaders = false
+            proposeName()
         }
     }
 
@@ -189,6 +298,9 @@ class NewInstanceUiState(
     }
 
     fun back() {
+        probeJob?.cancel()
+        loaderGeneration++
+        probe = Probe.IDLE
         step = when (step) {
             Step.NAME -> Step.LOADER
             Step.LOADER -> Step.VERSION
@@ -252,6 +364,9 @@ class NewInstanceUiState(
     }
 
     fun reset() {
+        probeJob?.cancel()
+        loaderGeneration++
+        probe = Probe.IDLE
         step = Step.VERSION
         selectedVersion = null
         displayName = ""

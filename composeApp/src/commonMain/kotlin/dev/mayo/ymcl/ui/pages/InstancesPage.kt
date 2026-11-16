@@ -61,6 +61,8 @@ import dev.mayo.ymcl.app.InstanceSummary
 import dev.mayo.ymcl.platform.formatLastLaunch
 import dev.mayo.ymcl.platform.nowMillis
 import dev.mayo.ymcl.ui.components.CircleButton
+import dev.mayo.ymcl.ui.components.EmptyStateView
+import dev.mayo.ymcl.ui.components.ErrorBanner
 import dev.mayo.ymcl.ui.components.OutlinedPillButton
 import dev.mayo.ymcl.ui.components.PageHeader
 import dev.mayo.ymcl.ui.components.PrimaryButton
@@ -113,12 +115,6 @@ fun InstancesPage(state: AppState) {
                     width = 128.dp,
                     onClick = { state.navigate(AppPage.IMPORT) },
                 )
-                Spacer(Modifier.width(12.dp))
-                OutlinedPillButton(
-                    text = "新建实例",
-                    width = 120.dp,
-                    onClick = { state.navigate(AppPage.NEW_INSTANCE) },
-                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -130,20 +126,7 @@ fun InstancesPage(state: AppState) {
             LaunchedEffect(errorText) { if (errorText != null) lastError.value = errorText }
             MotionVisibility(visible = errorText != null, reduceMotion = reduceMotion) {
                 Column {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(colors.errorContainer)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                    ) {
-                        Text(
-                            lastError.value.orEmpty(),
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp,
-                            color = colors.onErrorContainer,
-                        )
-                    }
+                    ErrorBanner(message = lastError.value.orEmpty())
                     Spacer(Modifier.height(12.dp))
                 }
             }
@@ -154,7 +137,7 @@ fun InstancesPage(state: AppState) {
                 visible = state.instances.isEmpty(),
                 reduceMotion = reduceMotion,
             ) {
-                EmptyInstances(onGetContent = { state.navigate(AppPage.NEW_INSTANCE) })
+                EmptyInstances(onInstall = { state.openInstallGame() })
             }
             MotionVisibility(
                 visible = state.instances.isNotEmpty(),
@@ -224,7 +207,7 @@ fun InstancesPage(state: AppState) {
 }
 
 @Composable
-private fun EmptyInstances(onGetContent: () -> Unit) {
+private fun EmptyInstances(onInstall: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
@@ -234,29 +217,13 @@ private fun EmptyInstances(onGetContent: () -> Unit) {
             .background(colors.surfaceContainerLow),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                YmclIcons.Folder,
-                contentDescription = null,
-                tint = colors.onSurfaceVariant,
-                modifier = Modifier.size(48.dp),
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = "还没有实例",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.onSurface,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "点「新建实例」安装一个游戏版本，或导入整合包，实例会出现在这里。",
-                fontSize = 13.sp,
-                color = colors.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(20.dp))
-            PrimaryButton(text = "获取内容", width = 148.dp, onClick = onGetContent)
-        }
+        EmptyStateView(
+            title = "还没有实例",
+            message = "安装一个游戏版本开始使用",
+            buttonText = "安装游戏",
+            onAction = onInstall,
+            icon = YmclIcons.Folder,
+        )
     }
 }
 

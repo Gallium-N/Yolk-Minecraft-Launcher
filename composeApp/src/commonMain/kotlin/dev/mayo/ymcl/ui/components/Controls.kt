@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -378,5 +380,99 @@ fun MorphSurface(
             .then(clickableModifier),
     ) {
         content()
+    }
+}
+
+// ---- Shared async feedback components (loading / error / empty) ----------
+// Every page uses these three instead of writing its own; all colors come from
+// MaterialTheme and all sizes reuse the existing dp/sp tokens.
+
+/** Inline spinner + short label for a running async action. */
+@Composable
+fun LoadingIndicator(text: String, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        Spacer(Modifier.width(10.dp))
+        Text(text, fontSize = 13.sp, color = colors.onSurfaceVariant)
+    }
+}
+
+/** Skeleton placeholder rows shown while a list is loading (never blank, never one line). */
+@Composable
+fun LoadingSkeleton(rows: Int = 3, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(rows) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surfaceContainerHigh),
+            )
+        }
+    }
+}
+
+/** One error banner: what happened + the next step, with optional retry / back. */
+@Composable
+fun ErrorBanner(
+    message: String,
+    modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null,
+    onBack: (() -> Unit)? = null,
+) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.errorContainer)
+            .padding(16.dp),
+    ) {
+        Column {
+            Text(message, fontSize = 12.sp, lineHeight = 18.sp, color = colors.onErrorContainer)
+            if (onRetry != null || onBack != null) {
+                Spacer(Modifier.height(10.dp))
+                Row {
+                    if (onRetry != null) {
+                        OutlinedPillButton(text = "重试", width = 96.dp, onClick = onRetry)
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    if (onBack != null) {
+                        TonalButton(text = "返回列表", width = 108.dp, onClick = onBack)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One empty state: an optional icon, one short sentence and one optional button. */
+@Composable
+fun EmptyStateView(
+    title: String,
+    modifier: Modifier = Modifier,
+    message: String? = null,
+    buttonText: String? = null,
+    onAction: (() -> Unit)? = null,
+    icon: ImageVector? = null,
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(48.dp))
+            Spacer(Modifier.height(16.dp))
+        }
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
+        if (message != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(message, fontSize = 13.sp, color = colors.onSurfaceVariant)
+        }
+        if (buttonText != null && onAction != null) {
+            Spacer(Modifier.height(20.dp))
+            PrimaryButton(text = buttonText, width = 148.dp, onClick = onAction)
+        }
     }
 }

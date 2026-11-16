@@ -78,6 +78,7 @@ class AppState(
     private val repositoryFactory: (String) -> InstanceRepository = { EmptyInstanceRepository() },
     gameRoot: String = defaultGameDirectory(),
     private val isolationEnabled: Boolean = true,
+    private val loaderProbeTimeoutMs: Long = 8_000L,
     modrinth: ModrinthService? = null,
     modpack: ModpackBackend? = null,
     newInstance: NewInstanceBackend? = null,
@@ -118,6 +119,7 @@ class AppState(
         },
         onInstancesChanged = { refresh() },
         log = ::println,
+        loaderProbeTimeoutMs = loaderProbeTimeoutMs,
     )
 
     // instanceId -> origin of the running process. Guarded: stop() runs on the
@@ -180,6 +182,24 @@ class AppState(
     var density by mutableStateOf(Density.COMFORTABLE)
 
     var settingsGroup by mutableStateOf(SettingsGroup.APPEARANCE)
+
+    /** 获取内容页顶层 tab：0 = 安装游戏版本（向导），1 = 获取模组。默认第一个。 */
+    var getContentTab by mutableStateOf(0)
+
+    /** Hero / 空状态入口：直达「获取内容 → 安装游戏版本」第一步，版本列表开始加载。 */
+    fun openInstallGame() {
+        getContentTab = 0
+        navigate(AppPage.GET_CONTENT)
+        if (newInstanceUi.versions.isEmpty() && !newInstanceUi.loadingVersions) {
+            newInstanceUi.loadVersions()
+        }
+    }
+
+    /** 获取模组入口。 */
+    fun openGetMods() {
+        getContentTab = 1
+        navigate(AppPage.GET_CONTENT)
+    }
 
     /** CurseForge official API key (empty -> curse.tools proxy). */
     var curseForgeApiKey by mutableStateOf(initialCurseForgeApiKey)
