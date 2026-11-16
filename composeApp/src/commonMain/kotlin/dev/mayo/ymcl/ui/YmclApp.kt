@@ -3,16 +3,10 @@ package dev.mayo.ymcl.ui
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -60,65 +54,47 @@ fun YmclApp(state: AppState) {
             )
             val slidePx = rememberSharedAxisSlidePx()
 
-            BoxWithConstraints(
+            // Root content area: Box + padding only. NO scroll modifier here.
+            // A page-level verticalScroll used to wrap this whole Row (nav + page),
+            // so the mouse wheel pushed the Hero card and the nav rail together on
+            // short/DPI-scaled windows. Pages now own their internal list/log scroll.
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(colors.surface),
+                    .background(colors.surface)
+                    .graphicsLayer { alpha = enterAlpha },
             ) {
-                // Below the supported minimum (1100x700, enforced by the AWT window)
-                // fall back to a scrollable 1100x700 canvas instead of squeezing or
-                // clipping the layout. Normal sizes never get these scroll modifiers.
-                val needsHorizontal = maxWidth < 1100.dp
-                val needsVertical = maxHeight < 700.dp
-                val horizontal = rememberScrollState()
-                val vertical = rememberScrollState()
-                val canvasWidth = if (needsHorizontal) 1100.dp else maxWidth
-                val canvasHeight = if (needsVertical) 700.dp else maxHeight
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = enterAlpha }
-                        .then(if (needsHorizontal) Modifier.horizontalScroll(horizontal) else Modifier)
-                        .then(if (needsVertical) Modifier.verticalScroll(vertical) else Modifier),
-                ) {
-                    Row(
+                Row(Modifier.fillMaxSize()) {
+                    YmclNavigationRail(
+                        current = state.page,
+                        onSelect = state::navigate,
+                    )
+                    // W_c = window width - 88 (rail) - 48 (24dp on each side).
+                    // This box deliberately has no width cap: pages reflow with it.
+                    Box(
                         modifier = Modifier
-                            .width(canvasWidth)
-                            .height(canvasHeight)
-                            .background(colors.surface),
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp),
                     ) {
-                        YmclNavigationRail(
-                            current = state.page,
-                            onSelect = state::navigate,
-                        )
-                        // W_c = window width - 88 (rail) - 48 (24dp on each side).
-                        // This box deliberately has no width cap: pages reflow with it.
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 24.dp),
-                        ) {
-                            if (reduceMotion) {
-                                // Instant swap: no transition frame can exist.
-                                PageContent(state.page, state)
-                            } else {
-                                AnimatedContent(
-                                    targetState = state.page,
-                                    transitionSpec = {
-                                        sharedAxisTransform(
-                                            reduceMotion = reduceMotion,
-                                            direction = sharedAxisDirection(
-                                                initialState.ordinal,
-                                                targetState.ordinal,
-                                            ),
-                                            slidePx = slidePx,
-                                        )
-                                    },
-                                    label = "page-shared-axis",
-                                ) { page ->
-                                    PageContent(page, state)
-                                }
+                        if (reduceMotion) {
+                            // Instant swap: no transition frame can exist.
+                            PageContent(state.page, state)
+                        } else {
+                            AnimatedContent(
+                                targetState = state.page,
+                                transitionSpec = {
+                                    sharedAxisTransform(
+                                        reduceMotion = reduceMotion,
+                                        direction = sharedAxisDirection(
+                                            initialState.ordinal,
+                                            targetState.ordinal,
+                                        ),
+                                        slidePx = slidePx,
+                                    )
+                                },
+                                label = "page-shared-axis",
+                            ) { page ->
+                                PageContent(page, state)
                             }
                         }
                     }

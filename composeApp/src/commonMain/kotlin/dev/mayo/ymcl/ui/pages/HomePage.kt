@@ -7,13 +7,17 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -112,16 +116,19 @@ fun HomePage(state: AppState) {
             // 观感像渲染丢失；此时整组连同标题一起隐藏，只留 Hero 的引导文案。
             if (state.instances.isNotEmpty()) {
                 Spacer(Modifier.height(if (compact) 16.dp else 24.dp))
-                Row(Modifier.fillMaxWidth()) {
+                // The bottom row eats the remaining height. Nothing here can
+                // push the Hero / nav out of the window; only the 最近实例 list
+                // is allowed to scroll, and only inside its own bounded area.
+                Row(Modifier.fillMaxWidth().weight(1f)) {
                     RecentInstancesColumn(
                         state = state,
                         now = now,
                         compact = compact,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     Spacer(Modifier.width(24.dp))
                     GetContentColumn(
-                        modifier = Modifier.width(rightWidth),
+                        modifier = Modifier.width(rightWidth).fillMaxHeight(),
                         compact = compact,
                         onBrowse = { state.navigate(AppPage.GET_CONTENT) },
                     )
@@ -317,17 +324,26 @@ private fun RecentInstancesColumn(
 
         val recent = state.recentInstances
         val reduceMotion = rememberReduceMotion()
-        recent.forEachIndexed { index, instance ->
-            key(instance.id) {
-                RecentInstanceCard(
-                    modifier = Modifier.listItemEntrance(index, reduceMotion),
-                    instance = instance,
-                    now = now,
-                ) {
-                    state.selectInstance(instance.id)
+        // Only this list scrolls. Its parent Row is weight(1f), so the Column
+        // has a bounded height here; extra instances never push the page.
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            recent.forEachIndexed { index, instance ->
+                key(instance.id) {
+                    RecentInstanceCard(
+                        modifier = Modifier.listItemEntrance(index, reduceMotion),
+                        instance = instance,
+                        now = now,
+                    ) {
+                        state.selectInstance(instance.id)
+                    }
                 }
+                Spacer(Modifier.height(if (compact) 8.dp else 16.dp))
             }
-            Spacer(Modifier.height(if (compact) 8.dp else 16.dp))
         }
 
         AllInstancesBar(count = state.instances.size) {
@@ -484,7 +500,7 @@ private fun GetContentColumn(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (compact) 360.dp else 372.dp)
+                .heightIn(max = if (compact) 360.dp else 372.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(colors.surfaceContainerLow)
                 .padding(vertical = if (compact) 12.dp else 18.dp),

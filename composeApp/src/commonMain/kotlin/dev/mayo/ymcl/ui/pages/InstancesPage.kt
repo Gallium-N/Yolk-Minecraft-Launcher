@@ -82,9 +82,10 @@ fun InstancesPage(state: AppState) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val contentWidth = maxWidth
         val columns = tableColumns(contentWidth)
-        // Table eats the remaining height; at the 700dp minimum it still keeps
-        // all five 92dp rows (header + rows = 504dp) instead of clipping the last.
-        val tableHeight = (maxHeight - 220.dp).coerceAtLeast(504.dp)
+        // Elastic: the table takes the height left by header/toolbar/footer.
+        // No hardcoded dp floor can push the page out of the window; the rows
+        // scroll INSIDE the table (see the verticalScroll below).
+        val tableHeight = (maxHeight - 220.dp).coerceAtLeast(0.dp)
 
         Column(Modifier.fillMaxWidth()) {
             PageHeader(
@@ -177,6 +178,9 @@ fun InstancesPage(state: AppState) {
                         }
                     } else {
                         Column(
+                            // Instance-table rows scroll INSIDE the fixed-height
+                            // table (weight 1f of a bounded Column); nav/toolbar
+                            // never move. This is a list-internal scroll, not a root.
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()

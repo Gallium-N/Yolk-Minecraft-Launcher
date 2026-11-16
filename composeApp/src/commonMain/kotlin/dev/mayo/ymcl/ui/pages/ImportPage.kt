@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -70,7 +71,7 @@ fun ImportPage(state: AppState) {
 private fun PickCard(ui: ModpackUiState, reduceMotion: Boolean) {
     val colors = MaterialTheme.colorScheme
     var pathDraft by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize()) {
         SectionHeader("选择整合包文件")
         Spacer(Modifier.height(12.dp))
         Box(
@@ -166,7 +167,7 @@ private fun PickCard(ui: ModpackUiState, reduceMotion: Boolean) {
 private fun ConfirmCard(ui: ModpackUiState) {
     val colors = MaterialTheme.colorScheme
     val p = ui.plan ?: return
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize()) {
         SectionHeader("确认导入", hint = p.source.id)
         Spacer(Modifier.height(12.dp))
         Box(
@@ -286,6 +287,8 @@ private fun ErrorCard(ui: ModpackUiState, reduceMotion: Boolean) {
             SectionHeader("失败清单", hint = "${ui.failures.size} 条")
             Spacer(Modifier.height(8.dp))
             Column(
+                // Failure list scrolls INSIDE a weight(1f) bounded area of the
+                // error step; this is a list-internal scroll, not a page root.
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
@@ -301,7 +304,10 @@ private fun ErrorCard(ui: ModpackUiState, reduceMotion: Boolean) {
             Spacer(Modifier.height(12.dp))
             SectionHeader("警告", hint = "${ui.warnings.size} 条")
             Spacer(Modifier.height(6.dp))
-            Column(Modifier.height(96.dp).verticalScroll(rememberScrollState())) {
+            Column(
+                // Bounded warnings list: heightIn(max) keeps it inside the page.
+                Modifier.heightIn(max = 96.dp).verticalScroll(rememberScrollState()),
+            ) {
                 ui.warnings.forEach { w ->
                     Text("• $w", fontSize = 11.sp, lineHeight = 16.sp, color = colors.onSurfaceVariant)
                 }

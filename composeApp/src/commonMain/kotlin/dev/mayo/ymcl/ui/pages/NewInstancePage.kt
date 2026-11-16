@@ -107,6 +107,7 @@ private fun VersionStep(
         when {
             ui.loadingVersions -> LoadingRow("正在拉取版本清单…")
             ui.versionsError != null -> ErrorBox(ui.versionsError!!, onRetry = { ui.loadVersions() })
+            // Version list scrolls INSIDE a weight(1f) bounded area; list-internal.
             else -> Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 ui.visibleVersions.take(400).forEach { v -> VersionRow(v, onClick = { ui.selectVersion(v) }) }
                 if (ui.visibleVersions.isEmpty()) {
@@ -252,7 +253,7 @@ private fun TypeBadge(type: String) {
 @Composable
 private fun LoaderStep(ui: NewInstanceUiState) {
     val colors = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize()) {
         SectionHeader("加载器（可选）", hint = ui.selectedVersion?.id ?: "")
         Spacer(Modifier.height(16.dp))
         Row {
@@ -326,7 +327,7 @@ private fun LoaderStep(ui: NewInstanceUiState) {
 @Composable
 private fun NameStep(ui: NewInstanceUiState) {
     val colors = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize()) {
         SectionHeader("实例名", hint = ui.loaderKind.displayName)
         Spacer(Modifier.height(16.dp))
         SearchPill(ui.displayName, { ui.updateName(it) }, "显示名称", Modifier.fillMaxWidth())
@@ -410,6 +411,7 @@ private fun ErrorStep(
             if (ui.failures.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 SectionHeader("失败清单", hint = "${ui.failures.size} 条")
+                // Failure list scrolls INSIDE a weight(1f) bounded area; list-internal.
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                     ui.failures.forEach { Text("• $it", fontSize = 12.sp, color = colors.error) }
                 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -127,6 +128,8 @@ fun GetContentPage(state: AppState) {
             SectionHeader("搜索结果", hint = if (ui.query.isBlank()) "热门模组" else "关键词：${ui.query}")
             Spacer(Modifier.height(8.dp))
             Column(
+                // Search-results list scrolls INSIDE a weight(1f) bounded area;
+                // page header + instance selector above stay fixed. List-internal.
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
@@ -372,7 +375,8 @@ private fun DependencyDialog(dialog: ModrinthDialog, ui: ModrinthUiState) {
             )
         },
         text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            // Dependency list scrolls INSIDE a bounded dialog body (never the page).
+            Column(modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                 Text("必需依赖（自动安装）", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
                 Spacer(Modifier.height(6.dp))
                 if (required.isEmpty()) {
