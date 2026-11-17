@@ -78,7 +78,7 @@ class AppState(
     private val repositoryFactory: (String) -> InstanceRepository = { EmptyInstanceRepository() },
     gameRoot: String = defaultGameDirectory(),
     private val isolationEnabled: Boolean = true,
-    private val loaderProbeTimeoutMs: Long = 8_000L,
+    private val loaderProbeTimeoutMs: Long = 30_000L,
     modrinth: ModrinthService? = null,
     modpack: ModpackBackend? = null,
     newInstance: NewInstanceBackend? = null,

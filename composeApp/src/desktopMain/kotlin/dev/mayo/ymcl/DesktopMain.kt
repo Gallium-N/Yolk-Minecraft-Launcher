@@ -8,6 +8,7 @@ import androidx.compose.ui.window.rememberWindowState
 import dev.mayo.ymcl.app.AppPage
 import dev.mayo.ymcl.app.AppState
 import dev.mayo.ymcl.app.LauncherSettings
+import dev.mayo.ymcl.app.MetaFetcher
 import dev.mayo.ymcl.app.MetaRepository
 import dev.mayo.ymcl.app.ModInstaller
 import dev.mayo.ymcl.app.ModpackBackendImpl
@@ -61,7 +62,15 @@ fun main() = application {
     // ---- P5 modpack stack ----
     // now=0 keeps the P3 meta caches fresh, so the base install makes no meta
     // network calls except the pinned Fabric profile when it is not cached yet.
-    val meta = MetaRepository(appRoot, source, FileMetaStore(), HttpMetaFetcher()) { 0L }
+    // QA-only "断源": make network meta fetches fail while leaving the disk
+    // cache intact, so the loader-list cache hit / 30s error paths can be
+    // verified. Reuses the existing ymcl.qa.loader.unreachable switch (no new one).
+    val metaFetcher: MetaFetcher = if (System.getProperty("ymcl.qa.loader.unreachable") == "1") {
+        MetaFetcher { throw dev.mayo.ymcl.app.MetaFetchException("loader source unreachable (QA 断源)") }
+    } else {
+        HttpMetaFetcher()
+    }
+    val meta = MetaRepository(appRoot, source, FileMetaStore(), metaFetcher) { 0L }
     val packFs = NativeDownloadFileSystem(gameRoot)
     val loaderProcess = dev.mayo.ymcl.app.DesktopLoaderProcess(::println)
     val modpack = ModpackBackendImpl(
@@ -98,7 +107,7 @@ fun main() = application {
             newInstance = newInstance,
             initialCurseForgeApiKey = settings.curseForgeApiKey(),
             initialAllowCurseToolsProxy = settings.allowCurseToolsProxy(),
-            loaderProbeTimeoutMs = System.getProperty("ymcl.qa.loader.timeoutMs")?.toLongOrNull() ?: 8_000L,
+            loaderProbeTimeoutMs = System.getProperty("ymcl.qa.loader.timeoutMs")?.toLongOrNull() ?: 30_000L,
             persistModpackSettings = { key, proxy -> settings.saveModpackSettings(key, proxy) },
         )
     }

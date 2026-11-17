@@ -49,21 +49,15 @@ class NewInstanceBackendImpl(
 
     override fun loadVersions(): List<VersionEntry> = meta.loadManifest().value.versions
 
-    override fun loaderVersions(kind: LoaderKind, mcVersion: String): List<String> {
-        // QA-only: make the loader source unreachable (hangs past the UI's 8s
-        // timeout) so the timeout/error + retry UI can be verified without
-        // changing the real source. Mirrors the ymcl.qa.neoforge.unreachable hook.
-        if (kind == LoaderKind.FABRIC && System.getProperty("ymcl.qa.loader.unreachable") == "1") {
-            Thread.sleep(8_500)
-            return emptyList()
-        }
-        return when (kind) {
-            LoaderKind.VANILLA -> emptyList()
-            LoaderKind.FABRIC -> fromMavenMetadata(meta.fetch(source.fabricLoaderMetadata(mcVersion)))
-            LoaderKind.QUILT -> fromQuiltJson(meta.fetch(source.quiltLoaderMetadata(mcVersion)))
-            LoaderKind.FORGE -> fromMavenMetadata(meta.forgeVersions(), prefix = "$mcVersion-")
-            LoaderKind.NEOFORGE -> fromMavenMetadata(meta.neoForgeVersions())
-        }
+    override fun loaderVersions(kind: LoaderKind, mcVersion: String): List<String> = when (kind) {
+        LoaderKind.VANILLA -> emptyList()
+        // Fabric enumeration goes through the TTL cache (fresh hit = zero network,
+        // stale = old value + background refresh). The QA "unreachable" switch is
+        // applied at the fetcher layer in DesktopMain so cache hits still work.
+        LoaderKind.FABRIC -> meta.loadFabricLoaderVersions(mcVersion)
+        LoaderKind.QUILT -> fromQuiltJson(meta.fetch(source.quiltLoaderMetadata(mcVersion)))
+        LoaderKind.FORGE -> fromMavenMetadata(meta.forgeVersions(), prefix = "$mcVersion-")
+        LoaderKind.NEOFORGE -> fromMavenMetadata(meta.neoForgeVersions())
     }
 
     private fun MetaRepository.forgeVersions(): String = fetch(source.forgeVersionMetadata())

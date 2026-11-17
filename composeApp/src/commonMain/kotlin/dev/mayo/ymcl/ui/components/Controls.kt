@@ -409,7 +409,7 @@ fun LoadingSkeleton(rows: Int = 3, modifier: Modifier = Modifier) {
                     .fillMaxWidth()
                     .height(36.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surfaceContainerHigh),
+                    .background(colors.surfaceContainerHighest),
             )
         }
     }

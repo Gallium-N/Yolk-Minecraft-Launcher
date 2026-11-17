@@ -19,12 +19,12 @@ class NewInstanceUiState(
     private val onFinished: (String) -> Unit,
     private val onInstancesChanged: () -> Unit = {},
     private val log: (String) -> Unit = ::println,
-    private val loaderProbeTimeoutMs: Long = 8_000L,
+    private val loaderProbeTimeoutMs: Long = 30_000L,
 ) {
     enum class Step { VERSION, LOADER, NAME, INSTALLING, DONE, ERROR }
 
     /** Result of the loader-availability probe started the moment a version is picked. */
-    enum class Probe { IDLE, LOADING, OK, EMPTY, TIMEOUT, FAILED }
+    enum class Probe { IDLE, CONNECTING, SLOW, OK, EMPTY, TIMEOUT, FAILED }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -36,6 +36,12 @@ class NewInstanceUiState(
     var probeVersions by mutableStateOf<List<String>>(emptyList())
         private set
     var probeError by mutableStateOf("")
+        private set
+    /** Stage hint for the LOADER progress bar: 0s / 3s / 10s ladder. */
+    var probeHint by mutableStateOf("")
+        private set
+    /** True once the 10s "network slow" stage is reached (enables 取消). */
+    var probeCanCancel by mutableStateOf(false)
         private set
     private var probeJob: Job? = null
     // Bumped on every probe/loader request; late results from a superseded
@@ -161,12 +167,20 @@ class NewInstanceUiState(
     }
 
     fun selectVersion(v: VersionEntry) {
+        println("[UI] step=$step probe=$probe -> selectVersion ${v.id}")
         // Cancel any previous probe AND invalidate any in-flight loader fetch:
         // clicking a second version switches directly, requests never stack up.
         probeJob?.cancel()
         loaderGeneration++
         selectedVersion = v
-        neoForgeReachable = backend?.neoForgeReachable() ?: true
+        // NeoForge reachability is a blocking curl --max-time 20 probe. Never
+        // run it on the click path (that froze the UI ~20s — see rework diagnosis);
+        // resolve it in the background and just default the chip to enabled now.
+        neoForgeReachable = true
+        scope.launch {
+            val reachable = runCatching { backend?.neoForgeReachable() ?: true }.getOrDefault(true)
+            neoForgeReachable = reachable
+        }
         loaderKind = LoaderKind.VANILLA
         selectedLoaderVersion = null
         loaderVersions = emptyList()
@@ -174,6 +188,7 @@ class NewInstanceUiState(
         loadingLoaders = false
         // Switch to the next step IMMEDIATELY (skeleton, not blank), then probe.
         step = Step.LOADER
+        println("[UI] step=$step probe=$probe (after set LOADER)")
         proposeName()
         probeLoaders(v.id)
     }
@@ -189,15 +204,32 @@ class NewInstanceUiState(
         probeJob?.cancel()
         loaderGeneration++
         probe = Probe.IDLE
+        probeError = ""
+        probeHint = ""
+        probeCanCancel = false
         step = Step.VERSION
+    }
+
+    /** Cancel the in-flight loader wait (10s+ stage button, or 返回). */
+    fun cancelProbe() {
+        probeJob?.cancel()
+        probeJob = null
+        loaderGeneration++
+        probe = Probe.IDLE
+        probeHint = ""
+        probeCanCancel = false
+        println("[UI] probe cancelled")
     }
 
     private fun probeLoaders(mc: String) {
         probeJob?.cancel()
         val gen = ++probeGeneration
-        probe = Probe.LOADING
+        probe = Probe.CONNECTING
         probeError = ""
         probeVersions = emptyList()
+        probeHint = "正在获取 Fabric 版本…"
+        probeCanCancel = false
+        println("[UI] step=$step probe=$probe (probeLoaders $mc)")
         val b = backend
         if (b == null) {
             probe = Probe.FAILED
@@ -205,19 +237,34 @@ class NewInstanceUiState(
             return
         }
         probeJob = scope.launch {
-            // The backend meta fetch is a BLOCKING java.net call with its own
-            // retry loop (connect 20s / read 60s), so coroutine cancellation
-            // cannot interrupt it. A separate watchdog enforces the hard 8s
-            // deadline; a generation token discards any late result.
-            launch {
-                delay(loaderProbeTimeoutMs)
-                if (probeGeneration == gen && probe == Probe.LOADING) {
+            // Stage ladder (no 8s false failure): 0s 获取 → 3s 连接 maven →
+            // 10s 较慢 + 取消 → 30s hard cap = readable error. Late results are
+            // discarded via the generation token; cancel() truly stops the wait.
+            val stages = launch {
+                delay(3_000)
+                if (probeGeneration == gen && probe == Probe.CONNECTING) {
+                    probe = Probe.CONNECTING
+                    probeHint = "正在连接 fabric maven…"
+                    println("[UI] probe stage=3s hint=$probeHint")
+                }
+                delay(7_000) // t=10s
+                if (probeGeneration == gen && (probe == Probe.CONNECTING)) {
+                    probe = Probe.SLOW
+                    probeHint = "网络较慢，仍在尝试"
+                    probeCanCancel = true
+                    println("[UI] probe stage=10s hint=$probeHint canCancel=$probeCanCancel")
+                }
+                delay(20_000) // t=30s hard cap
+                if (probeGeneration == gen && (probe == Probe.CONNECTING || probe == Probe.SLOW)) {
                     probe = Probe.TIMEOUT
-                    probeError = "maven.fabricmc.net 超时（${loaderProbeTimeoutMs / 1000}s）；点重试或返回列表。"
+                    probeCanCancel = false
+                    probeError = "连接 fabric maven 超时（30s）；点重试或返回列表。"
                 }
             }
             val outcome = runCatching { b.loaderVersions(LoaderKind.FABRIC, mc) }
-            if (probeGeneration != gen || probe != Probe.LOADING) return@launch
+            stages.cancel()
+            if (probeGeneration != gen || probe == Probe.TIMEOUT || probe == Probe.IDLE) return@launch
+            probeCanCancel = false
             when {
                 outcome.isFailure -> {
                     probe = Probe.FAILED
@@ -230,6 +277,7 @@ class NewInstanceUiState(
                 else -> {
                     probeVersions = outcome.getOrNull()!!.take(8)
                     probe = Probe.OK
+                    probeHint = ""
                 }
             }
         }
@@ -241,6 +289,8 @@ class NewInstanceUiState(
         probeJob?.cancel()
         probe = Probe.IDLE
         probeError = ""
+        probeHint = ""
+        probeCanCancel = false
         loaderKind = kind
         selectedLoaderVersion = null
         loaderVersions = emptyList()
@@ -260,7 +310,7 @@ class NewInstanceUiState(
         loadingLoaders = true
         scope.launch {
             // Same watchdog as the probe: blocking meta fetch cannot be
-            // cancelled, so enforce the 8s deadline independently and ignore
+            // cancelled, so enforce the deadline independently and ignore
             // late/superseded results.
             launch {
                 delay(loaderProbeTimeoutMs)
@@ -301,6 +351,8 @@ class NewInstanceUiState(
         probeJob?.cancel()
         loaderGeneration++
         probe = Probe.IDLE
+        probeHint = ""
+        probeCanCancel = false
         step = when (step) {
             Step.NAME -> Step.LOADER
             Step.LOADER -> Step.VERSION
@@ -367,6 +419,9 @@ class NewInstanceUiState(
         probeJob?.cancel()
         loaderGeneration++
         probe = Probe.IDLE
+        probeError = ""
+        probeHint = ""
+        probeCanCancel = false
         step = Step.VERSION
         selectedVersion = null
         displayName = ""

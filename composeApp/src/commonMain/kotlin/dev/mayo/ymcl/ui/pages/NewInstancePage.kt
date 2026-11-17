@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -135,7 +136,10 @@ private fun VersionStep(
                     VersionRow(
                         v = v,
                         selected = selected,
-                        onClick = { ui.selectVersion(v) },
+                        onClick = {
+                            println("[UI] version click id=${v.id}")
+                            ui.selectVersion(v)
+                        },
                     )
                 }
                 if (ui.visibleVersions.isEmpty()) {
@@ -271,6 +275,12 @@ private fun VersionRow(v: VersionEntry, selected: Boolean, onClick: () -> Unit) 
         TypeBadge(v.type)
         Spacer(Modifier.width(12.dp))
         Text(v.releaseTime.take(10), fontSize = 11.sp, color = colors.onSurfaceVariant)
+        // Instant click feedback: a spinner rides at the row tail as soon as the
+        // version is picked, before the LOADER step replaces the list.
+        if (selected) {
+            Spacer(Modifier.width(12.dp))
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        }
     }
     Spacer(Modifier.height(6.dp))
 }
@@ -301,9 +311,9 @@ private fun LoaderStep(ui: NewInstanceUiState) {
         }
         Spacer(Modifier.height(16.dp))
 
-        val probing = ui.probe == Probe.LOADING || ui.loadingLoaders
+        val probing = ui.probe == Probe.CONNECTING || ui.probe == Probe.SLOW || ui.loadingLoaders
         when {
-            probing -> LoadingSkeleton(rows = 3)
+            probing -> ProbeProgress(ui)
             ui.probeError.isNotEmpty() -> ErrorBanner(
                 message = ui.probeError,
                 onRetry = { ui.retryProbe() },
@@ -332,7 +342,7 @@ private fun LoaderStep(ui: NewInstanceUiState) {
 @Composable
 private fun SelectedVersionBar(ui: NewInstanceUiState) {
     val colors = MaterialTheme.colorScheme
-    val loading = ui.probe == Probe.LOADING || ui.loadingLoaders
+    val loading = ui.probe == Probe.CONNECTING || ui.probe == Probe.SLOW || ui.loadingLoaders
     Row(
         Modifier
             .fillMaxWidth()
@@ -353,6 +363,29 @@ private fun SelectedVersionBar(ui: NewInstanceUiState) {
             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
         }
     }
+}
+
+/**
+ * Explicit, always-visible loader-probe feedback (rework §2): an indeterminate
+ * bar, a one-line staged hint, and a cancel button once the 10s "slow" stage is
+ * reached. A skeleton alone was invisible against the page background.
+ */
+@Composable
+private fun ProbeProgress(ui: NewInstanceUiState) {
+    val colors = MaterialTheme.colorScheme
+    LinearProgressIndicator(Modifier.fillMaxWidth())
+    Spacer(Modifier.height(8.dp))
+    Text(
+        ui.probeHint.ifBlank { "正在获取 Fabric 版本…" },
+        fontSize = 13.sp,
+        color = colors.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(12.dp))
+    if (ui.probeCanCancel) {
+        TonalButton(text = "取消", width = 88.dp, onClick = { ui.cancelProbe() })
+        Spacer(Modifier.height(12.dp))
+    }
+    LoadingSkeleton(rows = 3)
 }
 
 @Composable

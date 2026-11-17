@@ -6,6 +6,7 @@ import dev.mayo.ymcl.app.MetaFetchException
 import dev.mayo.ymcl.app.MetaFetcher
 import dev.mayo.ymcl.app.MetaRepository
 import dev.mayo.ymcl.app.MetaStore
+import dev.mayo.ymcl.domain.CachedLoaderVersions
 import dev.mayo.ymcl.domain.CachedManifest
 import dev.mayo.ymcl.domain.VersionManifest
 import kotlinx.serialization.encodeToString
@@ -111,5 +112,75 @@ class MetaRepositoryTest {
         val saved = store.files[repo.manifestPath]!!
         assertEquals(1, json.decodeFromString(CachedManifest.serializer(), saved).schemaVersion)
         assertEquals(5000L, json.decodeFromString(CachedManifest.serializer(), saved).fetchedAt)
+    }
+
+    // --- Fabric loader-list cache (24h stale-while-revalidate) -------------
+
+    private fun loaderWrapper(versions: List<String>, fetchedAt: Long = 0L): String =
+        json.encodeToString(CachedLoaderVersions(schemaVersion = 1, fetchedAt = fetchedAt, versions = versions))
+
+    private fun loaderRepo(store: FakeStore, fetcher: MetaFetcher, now: Long): MetaRepository =
+        MetaRepository("/root", BmclapiDownloadSource, store, fetcher, { now })
+
+    @Test
+    fun `fresh loader cache avoids network`() {
+        val store = FakeStore(clock = 1000L)
+        var calls = 0
+        val repo = loaderRepo(
+            store,
+            MetaFetcher { calls++; throw AssertionError("must not fetch on a fresh hit") },
+            now = 1000L,
+        )
+        val path = repo.fabricLoaderListPath("1.20.1")
+        store.files[path] = loaderWrapper(listOf("0.14.21"), fetchedAt = 1000L)
+        store.mtimes[path] = 1000L
+        assertEquals(listOf("0.14.21"), repo.loadFabricLoaderVersions("1.20.1"))
+        assertEquals(0, calls)
+    }
+
+    @Test
+    fun `stale loader cache returns old list immediately then refreshes in background`() {
+        val store = FakeStore(clock = 0L)
+        var calls = 0
+        val repo = loaderRepo(
+            store,
+            MetaFetcher { calls++; """[{"loader":{"version":"0.15.0"}}]""" },
+            now = MetaCachePolicy.FABRIC_LOADER_LIST_TTL_MS + 1,
+        ).also { it.background = { refresh -> refresh() } } // synchronous for determinism
+        val path = repo.fabricLoaderListPath("1.20.1")
+        store.files[path] = loaderWrapper(listOf("0.14.21"), fetchedAt = 0L)
+        store.mtimes[path] = 0L
+
+        // Caller sees the OLD value instantly; the refresh runs out of view.
+        assertEquals(listOf("0.14.21"), repo.loadFabricLoaderVersions("1.20.1"))
+        assertEquals(1, calls)
+        // The refreshed value is what gets persisted for next time.
+        assertEquals(listOf("0.15.0"), json.decodeFromString<CachedLoaderVersions>(store.files[path]!!).versions)
+    }
+
+    @Test
+    fun `failed background loader refresh is swallowed and old list survives`() {
+        val store = FakeStore(clock = 0L)
+        val repo = loaderRepo(store, failingFetcher, now = MetaCachePolicy.FABRIC_LOADER_LIST_TTL_MS + 1)
+            .also { it.background = { refresh -> refresh() } }
+        val path = repo.fabricLoaderListPath("1.20.1")
+        store.files[path] = loaderWrapper(listOf("0.14.21"), fetchedAt = 0L)
+        store.mtimes[path] = 0L
+
+        // Must not throw even though the refresh fetcher always fails.
+        assertEquals(listOf("0.14.21"), repo.loadFabricLoaderVersions("1.20.1"))
+        // Cache file is left untouched on failure.
+        assertEquals(listOf("0.14.21"), json.decodeFromString<CachedLoaderVersions>(store.files[path]!!).versions)
+    }
+
+    @Test
+    fun `no loader cache fetches once and persists the result`() {
+        val store = FakeStore(clock = 1000L)
+        var calls = 0
+        val repo = loaderRepo(store, MetaFetcher { calls++; """[{"loader":{"version":"0.15.1"}}]""" }, now = 1000L)
+        assertEquals(listOf("0.15.1"), repo.loadFabricLoaderVersions("1.20.1"))
+        assertEquals(1, calls)
+        val path = repo.fabricLoaderListPath("1.20.1")
+        assertEquals(1, json.decodeFromString<CachedLoaderVersions>(store.files[path]!!).schemaVersion)
     }
 }

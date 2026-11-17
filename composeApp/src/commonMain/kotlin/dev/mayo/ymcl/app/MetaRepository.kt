@@ -1,10 +1,16 @@
 package dev.mayo.ymcl.app
 
+import dev.mayo.ymcl.domain.CachedLoaderVersions
 import dev.mayo.ymcl.domain.CachedManifest
 import dev.mayo.ymcl.domain.FabricProfile
 import dev.mayo.ymcl.domain.VersionEntry
 import dev.mayo.ymcl.domain.VersionManifest
 import dev.mayo.ymcl.platform.PathUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -40,6 +46,14 @@ class MetaRepository(
         encodeDefaults = true
     }
 
+    /** Schedules a background refresh. Tests inject `{ it() }` for determinism. */
+    var background: (() -> Unit) -> Unit = DEFAULT_BACKGROUND
+
+    companion object {
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        private val DEFAULT_BACKGROUND: (() -> Unit) -> Unit = { scope.launch { it() } }
+    }
+
     val manifestPath: String get() = PathUtil.join(appRoot, "data", "meta", "version_manifest_v2.json")
 
     /** Raw GET through the injected fetcher (loader meta APIs such as Quilt). */
@@ -50,6 +64,10 @@ class MetaRepository(
 
     fun fabricPath(mcVersion: String, loaderVersion: String): String =
         PathUtil.join(appRoot, "data", "meta", "fabric", "$mcVersion-$loaderVersion.json")
+
+    /** Cache file for the enumerated Fabric loader versions of one MC version. */
+    fun fabricLoaderListPath(mcVersion: String): String =
+        PathUtil.join(appRoot, "data", "meta", "fabric", "$mcVersion-loaders.json")
 
     fun loadManifest(): MetaResult<VersionManifest> {
         val raw = store.read(manifestPath)
@@ -118,9 +136,49 @@ class MetaRepository(
         throw MetaUnavailableException("无可用版本 json 缓存且刷新失败：${entry.id}")
     }
 
-    /** Fabric loader enumeration prefers the fast maven-metadata.xml; meta API JSON is fallback. */
+    /**
+     * Fabric loader enumeration with a 24h stale-while-revalidate cache at
+     * data/meta/fabric/<mc>-loaders.json:
+     *  - fresh cache  -> return immediately, zero network ("loaders cache hit <mc>")
+     *  - stale cache  -> return the old value immediately, refresh in background;
+     *                    a failed refresh is logged only, never surfaced
+     *  - no cache     -> fetch, persist, return
+     * The raw parse is shared by the network path so both paths agree.
+     */
     fun loadFabricLoaderVersions(mcVersion: String): List<String> {
+        val path = fabricLoaderListPath(mcVersion)
+        val raw = store.read(path)
+        val cached = raw?.let { runCatching { json.decodeFromString<CachedLoaderVersions>(it) }.getOrNull() }
+        val cachedAt = if (raw != null) store.lastModified(path) else 0L
+        if (cached != null && !MetaCachePolicy.isExpired(
+                cachedAt, now(), MetaCachePolicy.FABRIC_LOADER_LIST_TTL_MS,
+            )
+        ) {
+            println("loaders cache hit $mcVersion")
+            return cached.versions
+        }
+
+        if (cached != null) {
+            // Stale: hand back the old list NOW and refresh off the UI path.
+            background {
+                runCatching { fetchAndStoreLoaderVersions(mcVersion, path) }
+                    .onFailure { println("loaders background refresh failed $mcVersion: ${it.message}") }
+            }
+            return cached.versions
+        }
+
+        return fetchAndStoreLoaderVersions(mcVersion, path)
+    }
+
+    private fun fetchAndStoreLoaderVersions(mcVersion: String, path: String): List<String> {
         val text = fetcher.fetch(source.fabricLoaderMetadata(mcVersion))
+        val versions = parseFabricLoaderVersions(text)
+        val wrapper = CachedLoaderVersions(schemaVersion = 1, fetchedAt = now(), versions = versions)
+        store.write(path, json.encodeToString(wrapper))
+        return versions
+    }
+
+    private fun parseFabricLoaderVersions(text: String): List<String> {
         val trimmed = text.trimStart()
         return if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
             json.parseToJsonElement(text).jsonArray.mapNotNull { element ->

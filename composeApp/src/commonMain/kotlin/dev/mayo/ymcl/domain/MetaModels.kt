@@ -25,6 +25,14 @@ data class CachedManifest(
     val manifest: VersionManifest = VersionManifest(),
 )
 
+/** Wrapper persisted at data/meta/fabric/<mc>-loaders.json (TTL 24h, stale-while-revalidate). */
+@Serializable
+data class CachedLoaderVersions(
+    val schemaVersion: Int = 1,
+    val fetchedAt: Long = 0L,
+    val versions: List<String> = emptyList(),
+)
+
 /** Only the fields P3 needs from a Fabric meta-API profile json. */
 @Serializable
 data class FabricProfile(
