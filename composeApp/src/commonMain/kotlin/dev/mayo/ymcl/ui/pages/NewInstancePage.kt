@@ -311,8 +311,11 @@ private fun LoaderStep(ui: NewInstanceUiState) {
         }
         Spacer(Modifier.height(16.dp))
 
-        val probing = ui.probe == Probe.CONNECTING || ui.probe == Probe.SLOW || ui.loadingLoaders
+        val vanilla = ui.loaderKind == LoaderKind.VANILLA
+        val probing = !vanilla && (ui.probe == Probe.CONNECTING || ui.probe == Probe.SLOW || ui.loadingLoaders)
         when {
+            // Vanilla default: one light hint, NO version list, NO probe/network.
+            vanilla -> Text("原版不需要选择加载器版本", fontSize = 12.sp, color = colors.onSurfaceVariant)
             probing -> ProbeProgress(ui)
             ui.probeError.isNotEmpty() -> ErrorBanner(
                 message = ui.probeError,
@@ -324,9 +327,8 @@ private fun LoaderStep(ui: NewInstanceUiState) {
                 onRetry = { ui.selectLoader(ui.loaderKind) },
                 onBack = { ui.backToVersions() },
             )
-            ui.probe == Probe.OK -> ProbeVersionsList(ui)
             ui.loaderVersions.isNotEmpty() -> LoaderVersionsList(ui)
-            else -> Text("原版无需加载器版本。", fontSize = 12.sp, color = colors.onSurfaceVariant)
+            else -> Text("正在准备 ${ui.loaderKind.displayName}…", fontSize = 12.sp, color = colors.onSurfaceVariant)
         }
 
         Spacer(Modifier.weight(1f))
@@ -376,7 +378,7 @@ private fun ProbeProgress(ui: NewInstanceUiState) {
     LinearProgressIndicator(Modifier.fillMaxWidth())
     Spacer(Modifier.height(8.dp))
     Text(
-        ui.probeHint.ifBlank { "正在获取 Fabric 版本…" },
+        ui.probeHint.ifBlank { "正在获取加载器版本…" },
         fontSize = 13.sp,
         color = colors.onSurfaceVariant,
     )
@@ -419,25 +421,6 @@ private fun LoaderChips(ui: NewInstanceUiState) {
                     },
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun androidx.compose.foundation.layout.ColumnScope.ProbeVersionsList(ui: NewInstanceUiState) {
-    val colors = MaterialTheme.colorScheme
-    Text("可用 Fabric 构建", fontSize = 12.sp, color = colors.onSurfaceVariant)
-    Spacer(Modifier.height(8.dp))
-    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-        ui.probeVersions.forEach { v ->
-            Box(
-                Modifier.fillMaxWidth().height(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.surfaceContainerLow)
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) { Text(v, fontSize = 12.sp, color = colors.onSurface) }
-            Spacer(Modifier.height(4.dp))
         }
     }
 }

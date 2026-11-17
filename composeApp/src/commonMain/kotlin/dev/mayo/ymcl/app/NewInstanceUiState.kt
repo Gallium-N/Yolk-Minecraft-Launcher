@@ -13,6 +13,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** Per-(loader, mc) key for the in-session loader-version cache. */
+private data class LoaderCacheKey(val kind: LoaderKind, val mc: String)
+
 /** State + orchestration for the 5-step "new instance" wizard (section G). */
 class NewInstanceUiState(
     private val backend: NewInstanceBackend?,
@@ -33,8 +36,6 @@ class NewInstanceUiState(
     // has an instant, cancellable loading/error/success cycle (P0.2 §3).
     var probe by mutableStateOf(Probe.IDLE)
         private set
-    var probeVersions by mutableStateOf<List<String>>(emptyList())
-        private set
     var probeError by mutableStateOf("")
         private set
     /** Stage hint for the LOADER progress bar: 0s / 3s / 10s ladder. */
@@ -48,6 +49,9 @@ class NewInstanceUiState(
     // request are ignored so clicks never stack up.
     private var probeGeneration = 0L
     private var loaderGeneration = 0L
+    /** In-session cache of loader versions, keyed by (loader, mc). Switching
+     * away and back reuses the list with no network. */
+    private val loaderCache = mutableMapOf<LoaderCacheKey, List<String>>()
 
     var step by mutableStateOf(Step.VERSION)
         private set
@@ -170,33 +174,34 @@ class NewInstanceUiState(
         println("[UI] step=$step probe=$probe -> selectVersion ${v.id}")
         // Cancel any previous probe AND invalidate any in-flight loader fetch:
         // clicking a second version switches directly, requests never stack up.
-        probeJob?.cancel()
-        loaderGeneration++
+        cancelProbe()
         selectedVersion = v
-        // NeoForge reachability is a blocking curl --max-time 20 probe. Never
-        // run it on the click path (that froze the UI ~20s — see rework diagnosis);
-        // resolve it in the background and just default the chip to enabled now.
+        // NeoForge reachability is a background curl used ONLY to grey out the
+        // NeoForge chip. It never blocks the click path (rework diagnosis) and
+        // is not a loader-list request — the vanilla default path makes none.
         neoForgeReachable = true
         scope.launch {
             val reachable = runCatching { backend?.neoForgeReachable() ?: true }.getOrDefault(true)
             neoForgeReachable = reachable
         }
+        // Default to VANILLA with NO loader probe at all: vanilla needs no
+        // versions and must not hit the ~12s fabric maven request (p0b-loader).
         loaderKind = LoaderKind.VANILLA
         selectedLoaderVersion = null
         loaderVersions = emptyList()
         loaderStatus = ""
         loadingLoaders = false
-        // Switch to the next step IMMEDIATELY (skeleton, not blank), then probe.
         step = Step.LOADER
-        println("[UI] step=$step probe=$probe (after set LOADER)")
+        println("[UI] step=$step probe=$probe loader=VANILLA (after set LOADER, no loader probe)")
         proposeName()
-        probeLoaders(v.id)
     }
 
     /** Re-runs the loader probe after a transient failure. */
     fun retryProbe() {
         val mc = selectedVersion?.id ?: return
-        probeLoaders(mc)
+        val kind = loaderKind
+        if (kind == LoaderKind.VANILLA) return
+        probeLoaders(kind, mc, forceRefresh = true)
     }
 
     /** Error action: leave the loader step and go back to the version list. */
@@ -210,45 +215,73 @@ class NewInstanceUiState(
         step = Step.VERSION
     }
 
-    /** Cancel the in-flight loader wait (10s+ stage button, or 返回). */
+    /** Cancel the in-flight loader wait (10s+ stage button, or switch to vanilla). */
     fun cancelProbe() {
         probeJob?.cancel()
         probeJob = null
+        // Invalidate the waiting coroutine on BOTH tokens: a late loaderVersions
+        // result must never repopulate a list after the user cancelled/switched.
+        probeGeneration++
         loaderGeneration++
         probe = Probe.IDLE
+        probeError = ""
         probeHint = ""
         probeCanCancel = false
+        loadingLoaders = false
+        loaderVersions = emptyList()
+        selectedLoaderVersion = null
         println("[UI] probe cancelled")
     }
 
-    private fun probeLoaders(mc: String) {
+    /**
+     * Probe [kind] versions for [mc] and show the list. Only called for a
+     * non-vanilla loader, so the default path makes no loader-list request.
+     * Results are cached per (kind, mc): switching away and back reuses the
+     * list with zero network. A successful refresh ignores stale generations.
+     */
+    private fun probeLoaders(kind: LoaderKind, mc: String, forceRefresh: Boolean = false) {
         probeJob?.cancel()
         val gen = ++probeGeneration
-        probe = Probe.CONNECTING
         probeError = ""
-        probeVersions = emptyList()
-        probeHint = "正在获取 Fabric 版本…"
         probeCanCancel = false
-        println("[UI] step=$step probe=$probe (probeLoaders $mc)")
+        loadingLoaders = false
+        loaderStatus = ""
+        // Cache hit: reuse instantly, no network. The disk cache underneath
+        // (Fabric) still applies; this is the per-loader in-session layer.
+        val key = LoaderCacheKey(kind, mc)
+        val cached = loaderCache[key]
+        if (!forceRefresh && cached != null) {
+            loaderVersions = cached
+            selectedLoaderVersion = cached.firstOrNull()
+            probe = Probe.OK
+            probeHint = ""
+            println("[UI] loader cache hit ${kind.name} $mc")
+            return
+        }
+
+        probe = Probe.CONNECTING
+        loaderVersions = emptyList()
+        selectedLoaderVersion = null
+        probeHint = "正在获取 ${kind.displayName} 版本…"
+        println("[UI] probeLoaders kind=${kind.name} mc=$mc")
         val b = backend
         if (b == null) {
             probe = Probe.FAILED
             probeError = "加载器数据未就绪；点重试或返回列表。"
             return
         }
+        loadingLoaders = true
         probeJob = scope.launch {
-            // Stage ladder (no 8s false failure): 0s 获取 → 3s 连接 maven →
-            // 10s 较慢 + 取消 → 30s hard cap = readable error. Late results are
-            // discarded via the generation token; cancel() truly stops the wait.
+            // Stage ladder (no 8s false failure): 0s 获取 → 3s 连接源 →
+            // 10s 较慢 + 取消 → 30s hard cap = readable error.
             val stages = launch {
                 delay(3_000)
                 if (probeGeneration == gen && probe == Probe.CONNECTING) {
-                    probe = Probe.CONNECTING
-                    probeHint = "正在连接 fabric maven…"
+                    probeHint = "正在连接 ${kind.displayName} 源…"
                     println("[UI] probe stage=3s hint=$probeHint")
                 }
                 delay(7_000) // t=10s
-                if (probeGeneration == gen && (probe == Probe.CONNECTING)) {
+                if (probeGeneration == gen && probe == Probe.CONNECTING) {
                     probe = Probe.SLOW
                     probeHint = "网络较慢，仍在尝试"
                     probeCanCancel = true
@@ -258,24 +291,29 @@ class NewInstanceUiState(
                 if (probeGeneration == gen && (probe == Probe.CONNECTING || probe == Probe.SLOW)) {
                     probe = Probe.TIMEOUT
                     probeCanCancel = false
-                    probeError = "连接 fabric maven 超时（30s）；点重试或返回列表。"
+                    loadingLoaders = false
+                    probeError = "连接 ${kind.displayName} 源超时（30s）；点重试或返回列表。"
                 }
             }
-            val outcome = runCatching { b.loaderVersions(LoaderKind.FABRIC, mc) }
+            val outcome = runCatching { b.loaderVersions(kind, mc) }
             stages.cancel()
             if (probeGeneration != gen || probe == Probe.TIMEOUT || probe == Probe.IDLE) return@launch
+            loadingLoaders = false
             probeCanCancel = false
             when {
                 outcome.isFailure -> {
                     probe = Probe.FAILED
-                    probeError = "Fabric 版本拉取失败：${outcome.exceptionOrNull()?.message}；点重试或返回列表。"
+                    probeError = "${kind.displayName} 版本拉取失败：${outcome.exceptionOrNull()?.message}；点重试或返回列表。"
                 }
                 outcome.getOrNull().isNullOrEmpty() -> {
                     probe = Probe.EMPTY
-                    probeError = "该版本没有 Fabric 构建；选原版或返回列表。"
+                    probeError = "该版本没有 ${kind.displayName} 构建；选原版或返回列表。"
                 }
                 else -> {
-                    probeVersions = outcome.getOrNull()!!.take(8)
+                    val list = outcome.getOrNull()!!
+                    loaderCache[key] = list
+                    loaderVersions = list
+                    selectedLoaderVersion = list.firstOrNull()
                     probe = Probe.OK
                     probeHint = ""
                 }
@@ -284,18 +322,16 @@ class NewInstanceUiState(
     }
 
     fun selectLoader(kind: LoaderKind) {
-        // A manual loader choice ends the probe phase; cancel it so requests
-        // never stack up (P0.2 §3).
-        probeJob?.cancel()
-        probe = Probe.IDLE
-        probeError = ""
-        probeHint = ""
-        probeCanCancel = false
+        // Any loader change ends the current probe: cancel it so requests never
+        // stack up and no late result can repopulate a different loader's list.
+        cancelProbe()
         loaderKind = kind
         selectedLoaderVersion = null
         loaderVersions = emptyList()
         loaderStatus = ""
+        // VANILLA shows no list and makes no loader-list request at all.
         if (kind == LoaderKind.VANILLA) {
+            println("[UI] selectLoader VANILLA — no probe, no list")
             proposeName()
             return
         }
@@ -304,37 +340,9 @@ class NewInstanceUiState(
             proposeName()
             return
         }
-        val b = backend ?: return
         val mc = selectedVersion?.id ?: return
-        val gen = ++loaderGeneration
-        loadingLoaders = true
-        scope.launch {
-            // Same watchdog as the probe: blocking meta fetch cannot be
-            // cancelled, so enforce the deadline independently and ignore
-            // late/superseded results.
-            launch {
-                delay(loaderProbeTimeoutMs)
-                if (loaderGeneration == gen && loadingLoaders) {
-                    loadingLoaders = false
-                    loaderStatus = "${kind.displayName} 源超时（${loaderProbeTimeoutMs / 1000}s）；重试或切换加载器"
-                    proposeName()
-                }
-            }
-            val outcome = runCatching { b.loaderVersions(kind, mc) }
-            if (loaderGeneration != gen || !loadingLoaders) return@launch
-            when {
-                outcome.isFailure -> loaderStatus = "${kind.displayName} 版本拉取失败：${outcome.exceptionOrNull()?.message}"
-                outcome.getOrNull().isNullOrEmpty() -> loaderStatus = "没有可用的 ${kind.displayName} 版本"
-                else -> {
-                    val list = outcome.getOrNull()!!
-                    loaderVersions = list
-                    selectedLoaderVersion = list.firstOrNull()
-                    loaderStatus = ""
-                }
-            }
-            loadingLoaders = false
-            proposeName()
-        }
+        probeLoaders(kind, mc)
+        proposeName()
     }
 
     fun selectLoaderVersion(v: String) {
