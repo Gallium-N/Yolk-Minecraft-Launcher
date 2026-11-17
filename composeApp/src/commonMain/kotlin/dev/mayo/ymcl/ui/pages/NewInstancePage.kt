@@ -307,7 +307,11 @@ private fun LoaderStep(ui: NewInstanceUiState) {
         // here as a hint, never as the whole content area.
         if (!ui.neoForgeReachable) {
             Spacer(Modifier.height(8.dp))
-            Text("NeoForge 官方源不可达，已置灰。", fontSize = 12.sp, color = colors.error)
+            Text(
+                ui.neoForgeReachableNote.ifBlank { "NeoForge 官方源不可达，已置灰。" },
+                fontSize = 12.sp,
+                color = colors.error,
+            )
         }
         Spacer(Modifier.height(16.dp))
 

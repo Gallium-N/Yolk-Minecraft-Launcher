@@ -41,8 +41,11 @@ interface NewInstanceBackend {
     /** Available loader versions for [kind] on [mcVersion]; empty for vanilla. */
     fun loaderVersions(kind: LoaderKind, mcVersion: String): List<String>
 
-    /** Whether the NeoForge official source is reachable (probe before enabling). */
+    /** Whether the NeoForge maven source is reachable (candidate-chain probe). */
     fun neoForgeReachable(): Boolean
+
+    /** Human-readable note (sources tried) for the greyed-out NeoForge UI. */
+    fun neoForgeReachabilityNote(): String = ""
 
     fun install(
         mcVersion: String,

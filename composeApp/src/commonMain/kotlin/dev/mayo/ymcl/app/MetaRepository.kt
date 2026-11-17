@@ -2,6 +2,7 @@ package dev.mayo.ymcl.app
 
 import dev.mayo.ymcl.domain.CachedLoaderVersions
 import dev.mayo.ymcl.domain.CachedManifest
+import dev.mayo.ymcl.domain.CachedProbe
 import dev.mayo.ymcl.domain.FabricProfile
 import dev.mayo.ymcl.domain.VersionEntry
 import dev.mayo.ymcl.domain.VersionManifest
@@ -68,6 +69,10 @@ class MetaRepository(
     /** Cache file for the enumerated Fabric loader versions of one MC version. */
     fun fabricLoaderListPath(mcVersion: String): String =
         PathUtil.join(appRoot, "data", "meta", "fabric", "$mcVersion-loaders.json")
+
+    /** Reachability-probe cache file, one per loader (TTL 5 min). */
+    fun probePath(loader: String): String =
+        PathUtil.join(appRoot, "data", "meta", "probe", "$loader.json")
 
     fun loadManifest(): MetaResult<VersionManifest> {
         val raw = store.read(manifestPath)
@@ -188,6 +193,46 @@ class MetaRepository(
         } else {
             Regex("<version>([^<]+)</version>").findAll(text).map { it.groupValues[1] }.toList()
         }
+    }
+
+    /**
+     * Load a fresh (<=5 min) reachability probe result, or null when absent/expired.
+     * [clock] is supplied by the caller (real wall time in production, a fixed
+     * value in tests) so the 5-minute TTL is independent of the meta-repository's
+     * injected meta clock. The caller then re-probes via
+     * [MavenProbe.probeCandidates] and calls [saveProbe].
+     */
+    fun loadProbe(loader: String, clock: () -> Long): MavenProbe.Result? {
+        val raw = store.read(probePath(loader)) ?: return null
+        val cached = runCatching { json.decodeFromString<CachedProbe>(raw) }.getOrNull()
+            ?: return null
+        if (cached.schemaVersion > 1) return null
+        if (MetaCachePolicy.isExpired(cached.fetchedAt, clock(), MetaCachePolicy.PROBE_TTL_MS)) {
+            return null
+        }
+        return MavenProbe.Result(
+            reachable = cached.reachable,
+            via = cached.via,
+            tried = cached.tried,
+            note = cached.note,
+        )
+    }
+
+    /** Persist a probe result with schemaVersion for the 5-minute TTL window. */
+    fun saveProbe(loader: String, result: MavenProbe.Result, clock: () -> Long) {
+        store.write(
+            probePath(loader),
+            json.encodeToString(
+                CachedProbe(
+                    schemaVersion = 1,
+                    fetchedAt = clock(),
+                    reachable = result.reachable,
+                    via = result.via,
+                    tried = result.tried,
+                    note = result.note,
+                ),
+            ) + "\n",
+        )
     }
 
     /** Raw cached profile json, used by the loader installer to keep every field. */

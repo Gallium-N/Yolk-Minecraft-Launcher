@@ -82,11 +82,38 @@ class NewInstanceBackendImpl(
         return (stable.ifEmpty { all }).take(20)
     }
 
+    @Volatile
+    private var neoForgeNote: String = ""
+
+    override fun neoForgeReachabilityNote(): String = neoForgeNote
+
     override fun neoForgeReachable(): Boolean {
         // QA-only: forces the unreachable branch so the greyed-out UI can be
-        // verified even when the official source happens to be up.
-        if (System.getProperty("ymcl.qa.neoforge.unreachable") == "1") return false
-        return process.probe(source.neoforgeProbeUrl(), 1).reachable
+        // verified even when a source happens to be up.
+        if (System.getProperty("ymcl.qa.neoforge.unreachable") == "1") {
+            // Force the unreachable branch with the REAL candidate labels so the
+            // greyed-out UI and its "sources tried" message can be verified.
+            neoForgeNote = MavenProbe.unreachableMessage(
+                "NeoForge", source.neoforgeProbeUrls().map(MavenProbe::label),
+            )
+            return false
+        }
+        // Reuse a fresh (<=5 min) probe result — avoid re-probing every page entry.
+        // Key by source id so switching mirror on/off cannot reuse a result from
+        // the other source (bmclapi reachable != official reachable).
+        val clock = System::currentTimeMillis
+        val cacheKey = "neoforge-${source.id}"
+        meta.loadProbe(cacheKey, clock)?.let {
+            neoForgeNote = it.note
+            log("neoforge probe cache hit (source=${source.id} via=${it.via})")
+            return it.reachable
+        }
+        val result = MavenProbe.probeCandidates(
+            "neoforge", source.neoforgeProbeUrls(), process, log,
+        )
+        neoForgeNote = result.note
+        meta.saveProbe(cacheKey, result, clock)
+        return result.reachable
     }
 
     override fun cancel() {

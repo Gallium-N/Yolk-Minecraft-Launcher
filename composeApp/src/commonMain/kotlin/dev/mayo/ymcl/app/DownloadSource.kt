@@ -97,29 +97,48 @@ interface DownloadSource {
     fun quiltProfile(mcVersion: String, loaderVersion: String): List<String> =
         listOf("$QUILT_META/v3/versions/loader/${percentEncode(mcVersion)}/${percentEncode(loaderVersion)}/profile/json")
 
+    // Forge / NeoForge maven is mirrored by BMCLAPI (verified: /maven/... returns
+    // 200 for both), while the official domains are often blocked in CN. Mirror
+    // on => BMCLAPI first, official fallback. Mirror off => official only.
+    // Fabric / Quilt are deliberately NOT mirrored here (BMCLAPI 404 for them).
+
     /** Forge installer jar: forge-<mc>-<forge>-installer.jar (classifier "installer"). */
     fun forgeInstaller(mcVersion: String, forgeVersion: String): List<String> {
         val v = "$mcVersion-$forgeVersion"
         val path = "net/minecraftforge/forge/$v/forge-$v-installer.jar"
-        return listOf("$BMCLAPI/maven/$path", "$FORGE_MAVEN/$path")
+        return forgeCandidates(path, "$FORGE_MAVEN/$path")
     }
 
     /** NeoForge installer jar under maven.neoforged.net/releases. */
     fun neoforgeInstaller(version: String): List<String> {
         val path = "net/neoforged/neoforge/$version/neoforge-$version-installer.jar"
-        return listOf("$NEOFORGE_MAVEN/releases/$path", "$BMCLAPI/maven/$path")
+        return neoforgeCandidates(path, "$NEOFORGE_MAVEN/releases/$path")
     }
 
     /** maven-metadata.xml for Forge / NeoForge version pickers (wizard step 2). */
-    fun forgeVersionMetadata(): List<String> =
-        listOf("$FORGE_MAVEN/net/minecraftforge/forge/maven-metadata.xml")
+    fun forgeVersionMetadata(): List<String> {
+        val path = "net/minecraftforge/forge/maven-metadata.xml"
+        return forgeCandidates(path, "$FORGE_MAVEN/$path")
+    }
 
-    fun neoforgeVersionMetadata(): List<String> =
-        listOf("$NEOFORGE_MAVEN/releases/net/neoforged/neoforge/maven-metadata.xml")
+    fun neoforgeVersionMetadata(): List<String> {
+        val path = "net/neoforged/neoforge/maven-metadata.xml"
+        return neoforgeCandidates(path, "$NEOFORGE_MAVEN/releases/$path")
+    }
 
-    /** NeoForge reachability probe target (the official source is often blocked). */
-    fun neoforgeProbeUrl(): String =
-        "$NEOFORGE_MAVEN/releases/net/neoforged/neoforge/maven-metadata.xml"
+    /** Mirror-aware ordering: BMCLAPI /maven/<path> first when the mirror is on. */
+    private fun forgeCandidates(path: String, official: String): List<String> =
+        if (id == "official") listOf(official) else listOf("$BMCLAPI/maven/$path", official)
+
+    private fun neoforgeCandidates(path: String, official: String): List<String> =
+        if (id == "official") listOf(official) else listOf("$BMCLAPI/maven/$path", official)
+
+    /** NeoForge reachability probe candidates: same chain as version metadata,
+     * so the probe tries BMCLAPI first and only then the (often blocked) official. */
+    fun neoforgeProbeUrls(): List<String> = neoforgeVersionMetadata()
+
+    /** @deprecated single-URL probe kept for compatibility; use [neoforgeProbeUrls]. */
+    fun neoforgeProbeUrl(): String = neoforgeProbeUrls().first()
 }
 
 /** Percent-encode an arbitrary UTF-8 string without java.net (commonMain safe). */

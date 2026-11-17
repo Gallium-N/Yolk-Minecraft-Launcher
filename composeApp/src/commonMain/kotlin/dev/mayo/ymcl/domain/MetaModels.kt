@@ -33,6 +33,20 @@ data class CachedLoaderVersions(
     val versions: List<String> = emptyList(),
 )
 
+/** Probe result persisted at data/meta/probe/<loader>.json (TTL 5 min). */
+@Serializable
+data class CachedProbe(
+    val schemaVersion: Int = 1,
+    val fetchedAt: Long = 0L,
+    val reachable: Boolean = false,
+    /** Short label of the candidate that answered, e.g. "bmclapi" / "official". */
+    val via: String = "",
+    /** Short labels of every candidate tried, in order. */
+    val tried: List<String> = emptyList(),
+    /** Human-readable note (e.g. what was tried) shown when unreachable. */
+    val note: String = "",
+)
+
 /** Only the fields P3 needs from a Fabric meta-API profile json. */
 @Serializable
 data class FabricProfile(

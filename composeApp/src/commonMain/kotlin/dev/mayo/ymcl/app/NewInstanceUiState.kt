@@ -78,6 +78,9 @@ class NewInstanceUiState(
         private set
     var neoForgeReachable by mutableStateOf(true)
         private set
+    /** Note naming the sources tried when NeoForge is unreachable. */
+    var neoForgeReachableNote by mutableStateOf("")
+        private set
 
     var displayName by mutableStateOf("")
     var instanceId by mutableStateOf("")
@@ -183,6 +186,7 @@ class NewInstanceUiState(
         scope.launch {
             val reachable = runCatching { backend?.neoForgeReachable() ?: true }.getOrDefault(true)
             neoForgeReachable = reachable
+            neoForgeReachableNote = backend?.neoForgeReachabilityNote().orEmpty()
         }
         // Default to VANILLA with NO loader probe at all: vanilla needs no
         // versions and must not hit the ~12s fabric maven request (p0b-loader).
@@ -336,7 +340,7 @@ class NewInstanceUiState(
             return
         }
         if (kind == LoaderKind.NEOFORGE && !neoForgeReachable) {
-            loaderStatus = "NeoForge 官方源不可达，请检查网络或代理"
+            loaderStatus = neoForgeReachableNote.ifBlank { "NeoForge 官方源不可达，请检查网络或代理" }
             proposeName()
             return
         }

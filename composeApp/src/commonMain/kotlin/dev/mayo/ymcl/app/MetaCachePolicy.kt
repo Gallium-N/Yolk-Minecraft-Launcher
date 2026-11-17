@@ -15,6 +15,8 @@ object MetaCachePolicy {
     const val MANIFEST_TTL_MS: Long = 6L * 60 * 60 * 1000
     const val FABRIC_PROFILE_TTL_MS: Long = 24L * 60 * 60 * 1000
     const val FABRIC_LOADER_LIST_TTL_MS: Long = 24L * 60 * 60 * 1000
+    /** Maven reachability probes are re-run at most every 5 minutes. */
+    const val PROBE_TTL_MS: Long = 5L * 60 * 1000
 
     /** Boundary is inclusive: a cache exactly ttl old counts as expired. */
     fun isExpired(cachedAtMillis: Long, nowMillis: Long, ttlMillis: Long): Boolean =

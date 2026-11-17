@@ -140,12 +140,12 @@ class LoaderInstaller(
         instanceId: String,
         parentInstanceId: String = mcVersion,
     ): LoaderInstallResult {
-        val probe = process.probe(source.neoforgeProbeUrl(), 3)
-        log("NeoForge probe reachable=${probe.reachable} attempts=${probe.attempts} codes=${probe.httpCodes}")
+        // Candidate chain: BMCLAPI /maven first (mirror on), official fallback.
+        // All candidates failing is the only condition for "unreachable".
+        val probe = MavenProbe.probeCandidates("neoforge", source.neoforgeProbeUrls(), process, log)
+        log("NeoForge probe reachable=${probe.reachable} via=${probe.via} tried=${probe.tried}")
         if (!probe.reachable) {
-            throw LoaderInstallException(
-                "NeoForge 官方源不可达（已尝试 ${probe.attempts} 次，HTTP=${probe.httpCodes}），请检查网络或代理",
-            )
+            throw LoaderInstallException(probe.note.ifBlank { "NeoForge 源不可达，请检查网络或代理" })
         }
         val version = loaderVersion?.takeIf { it.isNotBlank() }
             ?: throw LoaderInstallException("NeoForge 需要 loaderVersion（如 20.4.237）")

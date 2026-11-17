@@ -205,14 +205,14 @@ class P3NoDebtTest {
     }
 
     @Test
-    fun `neoforge unreachable throws a readable error with attempt count`() {
+    fun `neoforge unreachable throws a readable error listing tried sources`() {
         val (installer, _, _) = fixture(process = FakeProcess(reachable = false))
         try {
             installer.installNeoForge("1.20.4", "20.4.237", "Neo-Test")
             fail("expected LoaderInstallException")
         } catch (e: LoaderInstallException) {
             assertTrue(e.message!!.contains("不可达"))
-            assertTrue(e.message!!.contains("3 次"))
+            assertTrue("unreachable message must name the sources tried", e.message!!.contains("已尝试"))
         }
     }
 
