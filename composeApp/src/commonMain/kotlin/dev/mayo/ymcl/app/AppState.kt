@@ -82,6 +82,7 @@ class AppState(
     modrinth: ModrinthService? = null,
     modpack: ModpackBackend? = null,
     newInstance: NewInstanceBackend? = null,
+    private val javaInstaller: JavaInstallOps? = null,
     initialCurseForgeApiKey: String = "",
     initialAllowCurseToolsProxy: Boolean = true,
     private val persistModpackSettings: (String, Boolean) -> Unit = { _, _ -> },
@@ -163,6 +164,33 @@ class AppState(
     /** True once the user explicitly picks a Java; the matrix must not override it. */
     var javaManuallySelected by mutableStateOf(false)
         private set
+
+    /** When the launcher should auto-install a missing Java without asking. */
+    var autoManageJava by mutableStateOf(false)
+
+    /** Missing-Java dialog request: what instance/major we are installing for. */
+    data class PendingJavaInstall(
+        val instanceId: String,
+        val displayName: String,
+        val major: Int,
+    )
+
+    var pendingJavaInstall by mutableStateOf<PendingJavaInstall?>(null)
+        private set
+
+    /** Java install step ladder state (P7 reuses the P0.2 0/3/10/30s protocol). */
+    var javaInstallStage by mutableStateOf("")
+        private set
+    var javaInstallProgress by mutableStateOf(JavaInstallProgress(""))
+        private set
+    var javaInstalling by mutableStateOf(false)
+        private set
+    var javaInstallError by mutableStateOf("")
+        private set
+    var availableJavaMajors by mutableStateOf<List<Int>>(emptyList())
+        private set
+    private var javaInstallJob: kotlinx.coroutines.Job? = null
+    private var javaInstallGeneration = 0L
 
     var xmxMb by mutableStateOf(4096)
 
@@ -282,6 +310,103 @@ class AppState(
         javaManuallySelected = true
     }
 
+    /** Background re-scan: reads release files only, never blocks the click. */
+    fun rescanJava() {
+        val installer = javaInstaller ?: return
+        scope.launch {
+            val found = runCatching { installer.rescan() }.getOrDefault(emptyList())
+            javaRuntimes = found
+            if (selectedJavaPath == null || found.none { it.path == selectedJavaPath }) {
+                selectedJavaPath = found.firstOrNull { it.major == 21 }?.path ?: found.firstOrNull()?.path
+            }
+            println("Java rescan: ${found.size} runtimes")
+        }
+    }
+
+    fun loadAvailableJavaMajors() {
+        val installer = javaInstaller ?: return
+        scope.launch {
+            availableJavaMajors = runCatching { installer.availableMajors() }.getOrDefault(emptyList())
+        }
+    }
+
+    fun dismissJavaInstall() {
+        pendingJavaInstall = null
+        javaInstallError = ""
+    }
+
+    /** Dialog's 自动安装 button / auto-manage path. */
+    fun requestJavaInstall(instanceId: String, displayName: String, major: Int) {
+        pendingJavaInstall = PendingJavaInstall(instanceId, displayName, major)
+        javaInstallError = ""
+        startJavaInstall(major)
+    }
+
+    private fun startJavaInstall(major: Int) {
+        val installer = javaInstaller ?: return
+        if (javaInstalling) return
+        javaInstallJob?.cancel()
+        val gen = ++javaInstallGeneration
+        javaInstalling = true
+        javaInstallError = ""
+        javaInstallStage = "正在准备 Java $major…"
+        javaInstallProgress = JavaInstallProgress("starting")
+        javaInstallJob = scope.launch {
+            // Step ladder (mirror of P0.2): 0s → 3s → 10s(+cancel) → 30s error.
+            val stages = launch {
+                kotlinx.coroutines.delay(3_000)
+                if (javaInstallGeneration == gen && javaInstalling) {
+                    javaInstallStage = "正在下载 Java $major…"
+                }
+                kotlinx.coroutines.delay(7_000)
+                if (javaInstallGeneration == gen && javaInstalling) {
+                    javaInstallStage = "网络较慢，仍在尝试"
+                }
+                kotlinx.coroutines.delay(20_000)
+                if (javaInstallGeneration == gen && javaInstalling) {
+                    javaInstallStage = "连接源超时（30s）；点重试或手动选择"
+                }
+            }
+            var cancelled = false
+            val result = try {
+                installer.install(
+                    major,
+                    onProgress = { p ->
+                        if (javaInstallGeneration == gen) javaInstallProgress = p
+                    },
+                    isCancelled = { javaInstallGeneration != gen },
+                )
+            } catch (e: Exception) {
+                stages.cancel()
+                JavaInstallResult(null, "", 0L, "", e.message ?: "install failed")
+            }
+            stages.cancel()
+            if (javaInstallGeneration != gen) return@launch
+            javaInstalling = false
+            if (!result.error.contains("取消", true) && result.runtime != null) {
+                javaInstallStage = "Java ${result.runtime.major} 安装完成（来源 ${result.usedSource}）"
+                javaInstallError = ""
+                rescanJava()
+                // Auto-continue the launch that triggered this install.
+                val target = pendingJavaInstall?.instanceId
+                pendingJavaInstall = null
+                if (target != null && target != "__settings__") launch(target)
+            } else {
+                javaInstallError = result.error.ifBlank { "安装未完成" }
+                javaInstallStage = ""
+            }
+        }
+    }
+
+    fun cancelJavaInstall() {
+        javaInstallGeneration++
+        javaInstallJob?.cancel()
+        javaInstallJob = null
+        javaInstalling = false
+        javaInstallStage = ""
+        javaInstallError = "已取消，可重试；临时文件已清理"
+    }
+
     fun changeGameDirectory(path: String) {
         val trimmed = path.trim()
         if (trimmed.isEmpty() || trimmed == gameDirectory) return
@@ -312,22 +437,24 @@ class AppState(
         if (activeInstanceId != null || launchPending) return
 
         val mcVersion = instances.firstOrNull { it.id == target }?.mcVersion ?: target
-        val java = if (javaManuallySelected) {
-            selectedJava
-        } else {
-            val selection = JavaMatrix.select(mcVersion, javaRuntimes)
-            if (selection.java == null) {
-                launchError = JavaMatrix.missingMessage(selection)
-                return
+        val manualPath = if (javaManuallySelected) selectedJavaPath else null
+        val choice = JavaSelector.select(mcVersion, javaRuntimes, manualPath)
+        val java = choice.java
+        val required = JavaMatrix.requiredMajor(mcVersion)
+        // Old clients (<=1.16) are STRICT: a higher Java cannot run them. Even
+        // though JavaSelector returns the nearest-higher with a warning, the
+        // engine will reject it — treat it as missing so auto-install can offer Java 8.
+        val unusableStrict = java != null && JavaMatrix.strict(mcVersion) && java.major != required
+        if (java == null || unusableStrict) {
+            val display = instances.firstOrNull { it.id == target }?.displayName ?: target
+            if (autoManageJava && javaInstaller != null) {
+                requestJavaInstall(target, display, required)
+            } else {
+                pendingJavaInstall = PendingJavaInstall(target, display, required)
             }
-            println("[UI ${nowMillis()}] Java matrix: mc=$mcVersion need=${selection.required} " +
-                "strict=${selection.strict} -> ${selection.java!!.path} (Java ${selection.java!!.major})")
-            selection.java
-        }
-        if (java == null) {
-            launchError = "没有可用的 Java 运行时。请检查设置 → 游戏里的 Java 列表。"
             return
         }
+        println("Java selected: ${java.path} (${java.vendor} ${java.version}) reason=${choice.reason}")
 
         launchError = null
         launchLogs = emptyList()

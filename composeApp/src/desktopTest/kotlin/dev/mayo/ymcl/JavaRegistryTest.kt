@@ -90,26 +90,18 @@ class JavaRegistryTest {
     }
 
     @Test
-    fun `fake java script is parsed into a runtime`() {
-        assumeFalse(System.getProperty("os.name").lowercase().contains("win"))
+    fun `release file is parsed into a runtime without spawning java`() {
         val root = temp.newFolder("jdk")
-        val bin = File(root, "bin").apply { mkdirs() }
-        val java = File(bin, "java")
-        java.writeText(
+        File(root, "bin").apply { mkdirs() }
+        File(root, "release").writeText(
             """
-            #!/bin/sh
-            cat >&2 <<'EOF'
-            Property settings:
-                java.version = 17.0.12
-                java.vendor = Eclipse Adoptium
-                os.arch = amd64
-            EOF
-            exit 0
+            JAVA_VERSION="17.0.12"
+            IMPLEMENTOR="Eclipse Adoptium"
+            OS_ARCH="x86_64"
             """.trimIndent(),
         )
-        java.setExecutable(true)
 
-        val runtime = probeJava(java)
+        val runtime = probeJava(File(root, "bin/java"))
         assertNotNull(runtime)
         assertEquals("Temurin", runtime!!.vendor)
         assertEquals(17, runtime.major)

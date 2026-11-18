@@ -1,5 +1,7 @@
 package dev.mayo.ymcl.platform
 
+import dev.mayo.ymcl.domain.JavaRelease
+import dev.mayo.ymcl.domain.JavaReleaseInfo
 import dev.mayo.ymcl.domain.JavaRuntime
 import java.awt.Desktop
 import java.io.File
@@ -52,101 +54,114 @@ actual fun defaultGameDirectory(): String {
 }
 
 actual fun detectJavaRuntimes(): List<JavaRuntime> {
-    val executable = if (currentOsFamily().isWindows) "java.exe" else "java"
-    val candidates = linkedSetOf<File>()
-
-    fun add(binary: File) {
-        if (binary.isFile && binary.canExecute()) {
-            candidates += binary
-        }
-    }
+    // Read-only discovery (P7): never spawn `java -version`. Collect candidate
+    // JAVA HOMES, read each <home>/release, dedupe by canonical path.
+    val homes = linkedSetOf<File>()
 
     fun addHome(home: File?) {
-        if (home != null) add(File(home, "bin/$executable"))
+        if (home != null && home.isDirectory) homes += home
     }
 
+    // Launcher self-installed runtimes first.
+    val javaRoot = File(appDataDirectory(), "java")
+    javaRoot.listFiles()?.filter { it.isDirectory }?.forEach(::addHome)
+
     addHome(System.getenv("JAVA_HOME")?.takeIf { it.isNotBlank() }?.let(::File))
+
+    // PATH: each bin/java -> walk up two levels to the home (release lives there).
     System.getenv("PATH").orEmpty()
         .split(File.pathSeparator)
         .filter { it.isNotBlank() }
-        .forEach { add(File(it, executable)) }
+        .forEach { entry ->
+            val dir = File(entry)
+            val bin = File(dir, if (currentOsFamily().isWindows) "java.exe" else "java")
+            if (bin.isFile) addHome(bin.parentFile?.parentFile)
+        }
 
     fun children(dir: File): List<File> =
         dir.listFiles()?.filter { it.isDirectory }.orEmpty()
 
-    children(File(Path.of("/usr", "lib", "jvm").toString())).forEach(::addHome)
+    if (!currentOsFamily().isWindows) {
+        children(File("/usr/lib/jvm")).forEach(::addHome)
+        children(File("/usr/java")).forEach(::addHome)
+    }
     children(File(System.getProperty("user.home"), ".sdkman/candidates/java")).forEach(::addHome)
     children(File(System.getProperty("user.home"), ".gradle/jdks")).forEach(::addHome)
 
-    // Windows note for P6/P7: also scan
-    //   %ProgramFiles%\Eclipse Adoptium\*\bin\java.exe
-    // and HKCU\Software\Adoptium\JDK / HKLM\SOFTWARE\JavaSoft\JDK registry entries.
+    if (currentOsFamily().isWindows) {
+        val env = System.getenv("ProgramFiles") ?: "C:\\Program Files"
+        listOf(
+            "$env\\Eclipse Adoptium",
+            "$env\\Java",
+            "$env\\Microsoft\\jdk-",
+            "$env\\Zulu",
+            System.getenv("LOCALAPPDATA")?.let { "$it\\Programs\\Eclipse Adoptium" },
+        ).filterNotNull().forEach { base ->
+            val dir = File(base)
+            if (dir.isDirectory) children(dir).forEach(::addHome)
+        }
+    }
 
     val seen = mutableSetOf<String>()
-    return candidates.mapNotNull { binary ->
+    return homes.mapNotNull { home ->
         val canonical = try {
-            binary.canonicalFile
+            home.canonicalFile
         } catch (_: Exception) {
-            binary.absoluteFile
+            home.absoluteFile
         }
         if (!seen.add(canonical.path)) return@mapNotNull null
-        probeJava(canonical)
+        probeHome(canonical)
     }.sortedWith(compareByDescending<JavaRuntime> { it.major }.thenBy { it.path })
 }
 
-internal fun probeJava(binary: File): JavaRuntime? {
-    return try {
-        val process = ProcessBuilder(binary.absolutePath, "-XshowSettings:properties", "-version")
-            .redirectErrorStream(true)
-            .start()
-        val finished = process.waitFor(10, TimeUnit.SECONDS)
-        if (!finished) {
-            process.destroyForcibly()
-            println("YMCL java probe timeout: ${binary.absolutePath}")
-            return null
-        }
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        if (process.exitValue() != 0) {
-            println("YMCL java probe failed (${process.exitValue()}): ${binary.absolutePath}")
-            return null
-        }
-
-        val properties = output.lineSequence().mapNotNull { line ->
-            val separator = line.indexOf('=')
-            if (separator <= 0) null
-            else line.substring(0, separator).trim() to line.substring(separator + 1).trim()
-        }.toMap()
-
-        val version = properties["java.version"] ?: return null
-        val vendor = normalizeVendor(properties["java.vendor"].orEmpty())
-        val major = parseMajor(version)
-        if (major < 0) return null
-        val arch = normalizeArch(properties["os.arch"].orEmpty())
-        val os = if (currentOsFamily().isWindows) "windows" else "linux"
-        val id = buildString {
-            append(slug(vendor))
-            append('-').append(version.replace('+', '_'))
-            append('-').append(arch).append('-').append(os)
-            append('-').append(
-                UUID.nameUUIDFromBytes(binary.absolutePath.toByteArray()).toString().take(8),
-            )
-        }
-
-        JavaRuntime(
-            id = id,
-            vendor = vendor,
-            major = major,
-            version = version,
-            arch = arch,
-            os = os,
-            path = binary.absolutePath,
-            source = "detected",
-            installedAt = null,
-        )
-    } catch (e: Exception) {
-        println("YMCL java probe error for ${binary.absolutePath}: ${e.message}")
+/** Build a runtime from a JAVA HOME by reading only its `release` file. */
+internal fun probeHome(home: File): JavaRuntime? {
+    val release = File(home, "release")
+    if (!release.isFile) return null
+    val info = try {
+        JavaRelease.parse(release.readText(Charsets.UTF_8))
+    } catch (_: Exception) {
         null
+    } ?: return null
+    return javaRuntimeFrom(home, info, "detected")
+}
+
+/** Kept for the registry test: a binary path is resolved back to its home. */
+internal fun probeJava(binary: File): JavaRuntime? {
+    val home = binary.parentFile?.parentFile ?: return null
+    return probeHome(home)
+}
+
+private fun javaRuntimeFrom(
+    home: File,
+    info: JavaReleaseInfo,
+    source: String,
+    installedAt: String? = null,
+): JavaRuntime {
+    val executable = if (currentOsFamily().isWindows) "java.exe" else "java"
+    val binary = File(File(home, "bin"), executable)
+    val vendor = normalizeVendor(info.vendor)
+    val arch = normalizeArch(info.osArch)
+    val os = if (currentOsFamily().isWindows) "windows" else "linux"
+    val id = buildString {
+        append(slug(vendor))
+        append('-').append(info.version.replace('+', '_'))
+        append('-').append(arch).append('-').append(os)
+        append('-').append(
+            UUID.nameUUIDFromBytes(home.absolutePath.toByteArray()).toString().take(8),
+        )
     }
+    return JavaRuntime(
+        id = id,
+        vendor = vendor,
+        major = info.major,
+        version = info.version,
+        arch = arch,
+        os = os,
+        path = binary.absolutePath,
+        source = source,
+        installedAt = installedAt,
+    )
 }
 
 private fun normalizeVendor(raw: String): String = when {
@@ -158,12 +173,6 @@ private fun normalizeVendor(raw: String): String = when {
     raw.contains("Amazon", ignoreCase = true) -> "Corretto"
     raw.contains("OpenJDK", ignoreCase = true) -> "OpenJDK"
     else -> raw
-}
-
-private fun parseMajor(version: String): Int {
-    val normalized = if (version.startsWith("1.")) version.substring(2) else version
-    val digits = normalized.takeWhile { it.isDigit() }
-    return digits.toIntOrNull() ?: -1
 }
 
 private fun normalizeArch(raw: String): String = when (raw.lowercase()) {

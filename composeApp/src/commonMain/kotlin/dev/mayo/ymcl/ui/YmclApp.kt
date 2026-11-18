@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import dev.mayo.ymcl.app.AppPage
 import dev.mayo.ymcl.app.AppState
+import dev.mayo.ymcl.ui.components.JavaInstallProgressDialog
+import dev.mayo.ymcl.ui.components.JavaMissingDialog
 import dev.mayo.ymcl.ui.components.LocalReduceMotion
 import dev.mayo.ymcl.ui.motion.effects
 import dev.mayo.ymcl.ui.motion.motionQaOverride
@@ -99,6 +101,9 @@ fun YmclApp(state: AppState) {
                         }
                     }
                 }
+                // Global Java dialogs: missing-runtime prompt + install step ladder.
+                JavaMissingDialog(state)
+                JavaInstallProgressDialog(state)
             }
         }
     }

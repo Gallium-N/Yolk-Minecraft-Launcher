@@ -270,24 +270,56 @@ private fun GameCards(state: AppState) {
             }
         }
 
-        SettingsCard(height = (96 + (state.javaRuntimes.size.coerceAtLeast(1) * 62)).dp) {
+        SettingsCard(height = (150 + (state.javaRuntimes.size.coerceAtLeast(1) * 58)).dp) {
             Text("Java 运行时", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
             Spacer(Modifier.height(4.dp))
             Text(
-                "来自 JAVA_HOME、PATH、系统 JVM 目录、sdkman 与 Gradle JDK；点击选择启动用 Java",
+                "来源：启动器自装、JAVA_HOME、PATH、系统 JVM 目录、sdkman、Gradle JDK；点击一行设为默认",
                 fontSize = 12.sp,
                 color = colors.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
+            // Auto-manage + rescan controls.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedPillButton(
+                    text = if (state.autoManageJava) "自动管理：开" else "自动管理：关",
+                    width = 120.dp,
+                    onClick = { state.autoManageJava = !state.autoManageJava },
+                )
+                Spacer(Modifier.width(10.dp))
+                OutlinedPillButton(text = "重新扫描", width = 96.dp, onClick = { state.rescanJava() })
+                Spacer(Modifier.width(10.dp))
+                OutlinedPillButton(
+                    text = "安装 Java…",
+                    width = 104.dp,
+                    onClick = { state.loadAvailableJavaMajors() },
+                )
+            }
+            if (state.availableJavaMajors.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("选择要安装的主版本（来自 Adoptium）：", fontSize = 11.sp, color = colors.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                Row {
+                    state.availableJavaMajors.forEach { major ->
+                        OutlinedPillButton(
+                            text = "Java $major",
+                            width = 84.dp,
+                            onClick = { state.requestJavaInstall("__settings__", "手动安装", major) },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
             if (state.javaRuntimes.isEmpty()) {
-                Text("未发现 Java；请安装 JDK 21 后重启 YMCL。", fontSize = 12.sp, color = colors.error)
+                Text("未发现 Java；点「安装 Java…」自动安装，或安装 JDK 后「重新扫描」。", fontSize = 12.sp, color = colors.error)
             } else {
                 state.javaRuntimes.forEach { runtime ->
                     val selected = runtime.path == state.selectedJavaPath
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp)
+                            .height(50.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(
                                 if (selected) colors.secondaryContainer else colors.surfaceContainerHigh.copy(alpha = 0.45f),
@@ -305,18 +337,27 @@ private fun GameCards(state: AppState) {
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "${runtime.vendor} ${runtime.version} · Java ${runtime.major}",
+                                "${runtime.vendor} ${runtime.version} · Java ${runtime.major} · ${runtime.source}",
                                 fontSize = 12.sp,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                                 color = if (selected) colors.onSecondaryContainer else colors.onSurface,
                             )
-                            Text(
-                                runtime.path,
-                                fontSize = 10.sp,
-                                color = colors.onSurfaceVariant,
-                            )
+                            Text(runtime.path, fontSize = 10.sp, color = colors.onSurfaceVariant, maxLines = 1)
                         }
                         Text(runtime.arch, fontSize = 10.sp, color = colors.onSurfaceVariant)
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier.size(28.dp).clip(RoundedCornerShape(8.dp))
+                                .background(colors.surfaceContainerHigh)
+                                .clickable {
+                                    // runtime.path ends in .../bin/java -> home is two segments up.
+                                    val sep = if ('/' in runtime.path) '/' else '\\'
+                                    val bin = runtime.path.substringBeforeLast(sep)
+                                    val home = bin.substringBeforeLast(sep)
+                                    dev.mayo.ymcl.platform.openFolder(home.ifBlank { runtime.path })
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) { Text("↗", fontSize = 12.sp, color = colors.onSurfaceVariant) }
                     }
                     Spacer(Modifier.height(6.dp))
                 }

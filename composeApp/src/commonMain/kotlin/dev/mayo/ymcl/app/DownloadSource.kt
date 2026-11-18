@@ -18,6 +18,10 @@ private const val CURSEFORGE_API = "https://api.curseforge.com"
 private const val CURSE_TOOLS = "https://api.curse.tools"
 private const val EDGE_FORGE_CDN = "https://edge.forgecdn.net"
 private const val UNREACHABLE = "https://127.0.0.1:9"
+// P7 Java auto-install: Adoptium API + CN mirrors. All URL literals live here.
+private const val ADOPTIUM_API = "https://api.adoptium.net/v3"
+private const val MIRROR_HUAWEI = "https://mirrors.huaweicloud.com/adoptium"
+private const val MIRROR_TUNA = "https://mirrors.tuna.tsinghua.edu.cn/Adoptium"
 
 private const val FABRIC_LOADER_METADATA_PATH = "net/fabricmc/fabric-loader/maven-metadata.xml"
 
@@ -132,6 +136,36 @@ interface DownloadSource {
 
     private fun neoforgeCandidates(path: String, official: String): List<String> =
         if (id == "official") listOf(official) else listOf("$BMCLAPI/maven/$path", official)
+
+    // ---- P7: Java auto-install (Adoptium API + CN mirrors) ----------------
+    fun adoptiumAvailableReleases(): List<String> = listOf("$ADOPTIUM_API/info/available_releases")
+
+    fun adoptiumAsset(major: Int, os: String, arch: String): List<String> =
+        listOf("$ADOPTIUM_API/assets/latest/$major/hotspot?os=$os&architecture=$arch&image_type=jre")
+
+    /**
+     * CN mirror first by major: 8 -> Huawei (TUNA 8u is a known 404),
+     * 17/21/25 -> TUNA, then the API-provided GitHub link as the last resort.
+     * Candidate chain only; label via CandidateUrl.sourceId is set by caller.
+     */
+    fun javaInstallCandidates(
+        major: Int,
+        os: String,
+        arch: String,
+        assetName: String,
+        githubLink: String,
+        preferMirror: Boolean = true,
+    ): List<String> {
+        val path = "$major/jre/$arch/$os/$assetName"
+        val huawei = "$MIRROR_HUAWEI/$path"
+        val tuna = "$MIRROR_TUNA/$path"
+        // 8 -> Huawei first (per task book), but Huawei sometimes serves an HTML
+        // error page with HTTP 200; TUNA is a verified real JRE 8 mirror, so keep
+        // it in the chain. 17/21/25 -> TUNA first, then Huawei. GitHub is always
+        // the last resort (slow/unreachable in CN). sha256 guards every candidate.
+        val mirrors = if (major <= 8) listOf(huawei, tuna) else listOf(tuna, huawei)
+        return if (preferMirror) mirrors + githubLink else listOf(githubLink) + mirrors
+    }
 
     /** NeoForge reachability probe candidates: same chain as version metadata,
      * so the probe tries BMCLAPI first and only then the (often blocked) official. */

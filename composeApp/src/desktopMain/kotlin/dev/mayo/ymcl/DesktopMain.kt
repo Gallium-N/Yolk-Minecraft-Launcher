@@ -7,6 +7,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import dev.mayo.ymcl.app.AppPage
 import dev.mayo.ymcl.app.AppState
+import dev.mayo.ymcl.app.DesktopJavaInstallOps
 import dev.mayo.ymcl.app.LauncherSettings
 import dev.mayo.ymcl.app.MetaFetcher
 import dev.mayo.ymcl.app.MetaRepository
@@ -105,6 +106,7 @@ fun main() = application {
             modrinth = modrinthService,
             modpack = modpack,
             newInstance = newInstance,
+            javaInstaller = DesktopJavaInstallOps(appRoot, source, settings.load().preferBmclapi, ::println),
             initialCurseForgeApiKey = settings.curseForgeApiKey(),
             initialAllowCurseToolsProxy = settings.allowCurseToolsProxy(),
             loaderProbeTimeoutMs = System.getProperty("ymcl.qa.loader.timeoutMs")?.toLongOrNull() ?: 30_000L,
