@@ -107,3 +107,37 @@ Set-Content -Path sfx-config.txt -Value $cfg -Encoding UTF8
 
 不改业务逻辑/下载器/UI 布局；不加新功能；不为了减小体积删掉运行时必需模块
 （`java.net.http` 缺失的教训）；截图窗口级、不许 fallback 全屏。
+
+---
+
+# 决策回执（DSH，2026-11-18）— 与上文冲突时以本节为准
+
+**D1 图标文件名**：以仓库实际文件为准。`design/logo` 已换成定稿版
+（`ymcl-mark-dark.ico` / `ymcl-mark-light.ico` / `ymcl-mark-light-512.png` /
+`ymcl-mark-light-256.png`），从本分支取：
+
+```bash
+git checkout p8-books -- design/logo
+```
+
+runtime 窗口图标：把 `ymcl-mark-light-256.png` 复制为
+`composeApp/src/commonMain/composeResources/drawable/ymcl.png`，`Window(icon = painterResource("ymcl.png"))`。
+旧文件 `ymcl-logo.*` 已删除，不要再引用。
+
+**D2 版本号**：打 `v1.0.0` tag 作为基线（打包 commit 上打）。
+CI：`V=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null | sed 's/^v//')`，
+为空则回落 `1.0.0`；`packageVersion` 取 `V` 的前三段数字。验收"与 tag 一致"= 与 `v1.0.0` 一致。
+
+**D3 Win10 VM 验收**：**跳过**，用户自己手动验。你不必找 VM，也不要用 wine 冒充。
+改为产出 `docs/p8-manual-checklist.md`：一条条写清"在哪台机器上点哪里、期望看到什么"，
+供用户照做（双击 SFX、exe 属性图标、任务栏图标、建 1.20.1 进主菜单、二次启动是否复用）。
+
+**D4 CI job 口径**：必绿 = `test`（Linux build+test）、`windows-portable`、`windows-sfx`、
+`linux-appimage` 四个。`windows-console-debug` 与 `windows-msi` 保持 best-effort
+（`continue-on-error: true`），失败不算阻塞，但要在报告里注明。`release` job 仅打 `v*` tag 时触发。
+
+**D5 AppImage**：只在 CI 的 ubuntu-latest 里生成（下 `appimagetool`，用
+`--appimage-extract-and-run` 以免依赖 FUSE）。本机不装 appimagetool；
+本机验收方式 = 从 artifact 下载 AppImage，在 WS 上 `chmod +x` 直接跑一次。
+
+**D6 截图纪律**：窗口级 grim；抓不到游戏/YMCL 窗口就**报错停下**，不许退化成整屏截图。
