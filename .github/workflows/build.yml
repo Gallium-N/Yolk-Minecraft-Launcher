@@ -109,27 +109,74 @@ jobs:
       - name: createDistributable
         shell: bash
         run: ./gradlew :composeApp:createDistributable -Pymcl.version=$VERSION --no-daemon --stacktrace
-      - name: Ensure 7-Zip
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "C:\Program Files\7-Zip\7z.exe")) { choco install 7zip -y }
       - name: Build SFX
         shell: pwsh
         run: |
-          $app = "composeApp/build/compose/binaries/main/app/YMCL"
-          $cfg = @"
-          ;!@Install@!UTF-8!
-          Title="YMCL $env:VERSION"
-          RunProgram="YMCL.exe"
-          GUIMode="2"
-          InstallPath="%LOCALAPPDATA%\\YMCL\\$env:VERSION"
-          ;!@InstallEnd@!
-          "@
-          Set-Content -Path sfx-config.txt -Value $cfg -Encoding UTF8
-          $exe = "YMCL-$env:VERSION-win-x64.exe"
-          & "C:\Program Files\7-Zip\7z.exe" a -sfx7z.sfx $exe sfx-config.txt ".\$app\*"
-          if ($LASTEXITCODE -ne 0) { throw "7z SFX failed: $LASTEXITCODE" }
-          (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower() + "  " + $exe | Set-Content -Encoding ASCII "SHA256SUMS-sfx.txt"
+          $ErrorActionPreference = "Stop"
+          $app = (Resolve-Path "composeApp/build/compose/binaries/main/app/YMCL").Path
+          if (-not $env:VERSION) { throw "VERSION is empty" }
+
+          # 1) locate 7z
+          $z = $null
+          foreach ($p in @("C:\Program Files\7-Zip\7z.exe", "C:\Program Files (x86)\7-Zip\7z.exe")) {
+            if (Test-Path $p) { $z = $p; break }
+          }
+          if (-not $z) { choco install 7zip -y --no-progress; $z = "C:\Program Files\7-Zip\7z.exe" }
+          if (-not (Test-Path $z)) { throw "7z.exe not found" }
+          $zdir = Split-Path $z
+          "7z: $(& $z | Select-Object -First 1) at $z"
+
+          # 2) locate an installer-capable SFX module (7zSD/7zS). Plain 7z.sfx does NOT read config.txt.
+          #    Modern 7-Zip installers ship without SFX modules: they live in the "extra" package.
+          $sfx = @("7zSD.sfx", "7zS.sfx") |
+                 ForEach-Object { Join-Path $zdir $_ } |
+                 Where-Object { Test-Path $_ } |
+                 Select-Object -First 1
+          if (-not $sfx) {
+            Write-Host "no SFX module in $zdir -> fetching the official extra package"
+            $page = (Invoke-WebRequest "https://www.7-zip.org/download.html" -UseBasicParsing).Content
+            $m = [regex]::Match($page, 'a/(7z\d+-extra\.7z)')
+            if (-not $m.Success) { throw "cannot find the extra package link on 7-zip.org" }
+            $url = "https://www.7-zip.org/a/" + $m.Groups[1].Value
+            "extra: $url"
+            Invoke-WebRequest $url -OutFile "$env:TEMP\7zx.7z" -UseBasicParsing
+            & $z x "$env:TEMP\7zx.7z" -o"$env:TEMP\7zx" -y | Out-Null
+            $found = Get-ChildItem "$env:TEMP\7zx" -Recurse -Include 7zSD.sfx, 7zS.sfx | Select-Object -First 1
+            if ($found) { $sfx = $found.FullName }
+          }
+          if (-not $sfx) { throw "no installer SFX module (7zSD.sfx / 7zS.sfx) available" }
+          "sfx: $sfx"
+
+          # 3) config.txt at the archive root, UTF-8 without BOM
+          $cfg = ";!@Install@!UTF-8!`r`n" +
+                 "Title=""YMCL $env:VERSION""`r`n" +
+                 "RunProgram=""YMCL.exe""`r`n" +
+                 "GUIMode=""2""`r`n" +
+                 "InstallPath=""%LOCALAPPDATA%\\YMCL\\$env:VERSION""`r`n" +
+                 ";!@InstallEnd@!`r`n"
+          $cfgPath = Join-Path $app "config.txt"
+          [IO.File]::WriteAllText($cfgPath, $cfg, (New-Object System.Text.UTF8Encoding($false)))
+
+          # 4) build: absolute module path, contents of the app dir at the archive root
+          $out = Join-Path (Get-Location).Path "YMCL-$env:VERSION-win-x64.exe"
+          if (Test-Path $out) { Remove-Item $out -Force }
+          Push-Location $app
+          try {
+            & $z a "-sfx$sfx" $out ".\*" 2>&1 | Tee-Object -Variable o
+            if ($LASTEXITCODE -ne 0) { throw "7z SFX failed: $LASTEXITCODE`n$($o -join "`n")" }
+          } finally {
+            Pop-Location
+            Remove-Item $cfgPath -Force -ErrorAction SilentlyContinue
+          }
+
+          # 5) the archive root must contain both
+          $list = & $z l $out
+          if (-not ($list -match "YMCL\.exe"))   { throw "YMCL.exe is not at the archive root" }
+          if (-not ($list -match "config\.txt")) { throw "config.txt is not at the archive root" }
+          "size = {0:N1} MB" -f ((Get-Item $out).Length / 1MB)
+
+          (Get-FileHash $out -Algorithm SHA256).Hash.ToLower() + "  YMCL-$env:VERSION-win-x64.exe" |
+            Set-Content -Encoding ASCII "SHA256SUMS-sfx.txt"
           Get-Content "SHA256SUMS-sfx.txt"
       - uses: actions/upload-artifact@v4
         with:
