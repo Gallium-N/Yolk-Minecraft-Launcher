@@ -19,6 +19,9 @@ import dev.mayo.ymcl.app.ModrinthService
 import dev.mayo.ymcl.app.NewInstanceBackendImpl
 import dev.mayo.ymcl.domain.LoaderKind
 import dev.mayo.ymcl.engine.HmclEngine
+import org.jetbrains.compose.resources.painterResource
+import ymcl.composeapp.generated.resources.Res
+import ymcl.composeapp.generated.resources.ymcl
 import dev.mayo.ymcl.platform.FileInstanceRepository
 import dev.mayo.ymcl.platform.FileMetaStore
 import dev.mayo.ymcl.platform.HttpCfFetcher
@@ -136,6 +139,7 @@ fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
         title = "YMCL",
+        icon = painterResource(Res.drawable.ymcl),
         state = windowState,
         resizable = true,
     ) {

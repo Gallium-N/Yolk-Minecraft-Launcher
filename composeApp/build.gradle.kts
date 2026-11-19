@@ -11,6 +11,38 @@ plugins {
     id("org.jetbrains.compose")
 }
 
+// P8: version + git sha compiled into the app so Settings/About can show
+// `v<version> (<sha>)` both in dev runs and in packaged builds. CI passes
+// -Pymcl.version=<V from git describe>; default keeps local builds working.
+val ymclVersion: String = providers.gradleProperty("ymcl.version").orElse("1.0.0").get()
+val ymclSha: String = try {
+    ProcessBuilder("git", "rev-parse", "--short", "HEAD")
+        .directory(rootProject.projectDir)
+        .redirectErrorStream(true)
+        .start().inputStream.bufferedReader().use { it.readLine()?.trim() }
+        ?.takeIf { it.isNotBlank() } ?: "dev"
+} catch (_: Exception) { "dev" }
+
+val buildInfoDir = layout.buildDirectory.dir("generated/ymcl/commonMain/kotlin")
+val generateBuildInfo by tasks.registering {
+    val out = buildInfoDir.get().asFile
+    outputs.dir(out)
+    doLast {
+        val pkg = File(out, "dev/mayo/ymcl").apply { mkdirs() }
+        File(pkg, "BuildInfo.kt").writeText(
+            """
+            package dev.mayo.ymcl
+
+            /** Generated at build time by composeApp/build.gradle.kts (P8). */
+            object BuildInfo {
+                const val VERSION = "$ymclVersion"
+                const val SHA = "$ymclSha"
+            }
+            """.trimIndent(),
+        )
+    }
+}
+
 kotlin {
     jvmToolchain(21)
     jvm("desktop") {
@@ -20,11 +52,15 @@ kotlin {
     }
 
     sourceSets {
+        val commonMain by getting {
+            kotlin.srcDir(buildInfoDir)
+        }
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
             implementation(compose.ui)
+            implementation(compose.components.resources)
             // Only the small core icon set (PlayArrow / Warning / Settings / MoreVert / ...).
             // material-icons-extended is intentionally not used.
             implementation("org.jetbrains.compose.material:material-icons-core:1.7.3")
@@ -51,9 +87,53 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Deb)
             packageName = "YMCL"
-            packageVersion = "1.0.0"
+            packageVersion = ymclVersion
+
+            // P8 runtime trimming. jdeps --print-module-deps over lib/app/*.jar
+            // plus the runtime-only modules the app reaches reflectively (see
+            // task book §3; java.net.http is mandatory — omitting it broke the
+            // downloader). -Pymcl.allModules restores the untrimmed jlink image.
+            if (project.hasProperty("ymcl.allModules")) {
+                includeAllModules = true
+            } else {
+                // jdeps --print-module-deps over lib/app/*.jar (excluding the
+                // unused javafx/fx-gson bridges) yields the first 8; the rest
+                // are runtime-only additions from the task book (reflective /
+                // charset / zipfs / HTTPS / locale) so nothing required is lost.
+                modules(
+                    "java.base",
+                    "java.desktop",
+                    "java.instrument",
+                    "java.net.http",
+                    "java.sql",
+                    "jdk.attach",
+                    "jdk.management",
+                    "jdk.unsupported",
+                    "jdk.crypto.ec",
+                    "jdk.charsets",
+                    "jdk.zipfs",
+                    "java.management",
+                    "jdk.localedata",
+                    "java.logging",
+                    "java.xml",
+                )
+            }
+            windows {
+                iconFile.set(project.file("../design/logo/ymcl-mark-dark.ico"))
+                console = project.hasProperty("ymcl.console")
+            }
+            linux {
+                iconFile.set(project.file("../design/logo/ymcl-mark-light-512.png"))
+                menuGroup = "Games"
+                appCategory = "Game"
+                shortcut = true
+            }
         }
     }
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    dependsOn(generateBuildInfo)
 }
 
 // Forward -Dymcl.theme=dark|light to the application JVM (the Gradle JVM would otherwise

@@ -448,10 +448,15 @@ private fun DownloadCards(state: AppState) {
 private fun AboutCard() {
     val colors = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsCard(height = 150.dp) {
+        SettingsCard(height = 172.dp) {
             Text("YMCL", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.onSurface)
             Spacer(Modifier.height(6.dp))
-            Text("Yolk Minecraft Launcher · P2", fontSize = 12.sp, color = colors.onSurfaceVariant)
+            Text("Yolk Minecraft Launcher", fontSize = 12.sp, color = colors.onSurfaceVariant)
+            Text(
+                "v${dev.mayo.ymcl.BuildInfo.VERSION} (${dev.mayo.ymcl.BuildInfo.SHA})",
+                fontSize = 11.sp,
+                color = colors.onSurfaceVariant,
+            )
             Spacer(Modifier.height(10.dp))
             Text(
                 "基于 HMCLCore（GPL-3.0-or-later WITH AdditionRef-HMCL）。",
