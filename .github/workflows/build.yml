@@ -87,8 +87,8 @@ jobs:
             SHA256SUMS-portable.txt
           retention-days: 14
 
-  windows-sfx:
-    name: Windows · single-file SFX exe (required)
+  windows-installer:
+    name: Windows · single-file installer (WiX)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -106,84 +106,33 @@ jobs:
           V=${V:-1.0.0}
           V=$(echo "$V" | cut -d. -f1-3)
           echo "VERSION=$V" >> "$GITHUB_ENV"
-      - name: createDistributable
-        shell: bash
-        run: ./gradlew :composeApp:createDistributable -Pymcl.version=$VERSION --no-daemon --stacktrace
-      - name: Build SFX
+      - name: Ensure WiX
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $app = (Resolve-Path "composeApp/build/compose/binaries/main/app/YMCL").Path
-          if (-not $env:VERSION) { throw "VERSION is empty" }
-
-          # 1) locate 7z
-          $z = $null
-          foreach ($p in @("C:\Program Files\7-Zip\7z.exe", "C:\Program Files (x86)\7-Zip\7z.exe")) {
-            if (Test-Path $p) { $z = $p; break }
+          if (-not (Test-Path "C:\Program Files (x86)\WiX Toolset v3.14\bin\candle.exe")) {
+            choco install wixtoolset -y --no-progress
           }
-          if (-not $z) { choco install 7zip -y --no-progress; $z = "C:\Program Files\7-Zip\7z.exe" }
-          if (-not (Test-Path $z)) { throw "7z.exe not found" }
-          $zdir = Split-Path $z
-          "7z: $(& $z | Select-Object -First 1) at $z"
-
-          # 2) locate an installer-capable SFX module (7zSD/7zS). Plain 7z.sfx does NOT read config.txt.
-          #    Modern 7-Zip installers ship without SFX modules: they live in the "extra" package.
-          $sfx = @("7zSD.sfx", "7zS.sfx") |
-                 ForEach-Object { Join-Path $zdir $_ } |
-                 Where-Object { Test-Path $_ } |
-                 Select-Object -First 1
-          if (-not $sfx) {
-            Write-Host "no SFX module in $zdir -> fetching the official extra package"
-            $page = (Invoke-WebRequest "https://www.7-zip.org/download.html" -UseBasicParsing).Content
-            $m = [regex]::Match($page, 'a/(7z\d+-extra\.7z)')
-            if (-not $m.Success) { throw "cannot find the extra package link on 7-zip.org" }
-            $url = "https://www.7-zip.org/a/" + $m.Groups[1].Value
-            "extra: $url"
-            Invoke-WebRequest $url -OutFile "$env:TEMP\7zx.7z" -UseBasicParsing
-            & $z x "$env:TEMP\7zx.7z" -o"$env:TEMP\7zx" -y | Out-Null
-            $found = Get-ChildItem "$env:TEMP\7zx" -Recurse -Include 7zSD.sfx, 7zS.sfx | Select-Object -First 1
-            if ($found) { $sfx = $found.FullName }
-          }
-          if (-not $sfx) { throw "no installer SFX module (7zSD.sfx / 7zS.sfx) available" }
-          "sfx: $sfx"
-
-          # 3) config.txt at the archive root, UTF-8 without BOM
-          $cfg = ";!@Install@!UTF-8!`r`n" +
-                 "Title=""YMCL $env:VERSION""`r`n" +
-                 "RunProgram=""YMCL.exe""`r`n" +
-                 "GUIMode=""2""`r`n" +
-                 "InstallPath=""%LOCALAPPDATA%\\YMCL\\$env:VERSION""`r`n" +
-                 ";!@InstallEnd@!`r`n"
-          $cfgPath = Join-Path $app "config.txt"
-          [IO.File]::WriteAllText($cfgPath, $cfg, (New-Object System.Text.UTF8Encoding($false)))
-
-          # 4) build: absolute module path, contents of the app dir at the archive root
-          $out = Join-Path (Get-Location).Path "YMCL-$env:VERSION-win-x64.exe"
-          if (Test-Path $out) { Remove-Item $out -Force }
-          Push-Location $app
-          try {
-            & $z a "-sfx$sfx" $out ".\*" 2>&1 | Tee-Object -Variable o
-            if ($LASTEXITCODE -ne 0) { throw "7z SFX failed: $LASTEXITCODE`n$($o -join "`n")" }
-          } finally {
-            Pop-Location
-            Remove-Item $cfgPath -Force -ErrorAction SilentlyContinue
-          }
-
-          # 5) the archive root must contain both
-          $list = & $z l $out
-          if (-not ($list -match "YMCL\.exe"))   { throw "YMCL.exe is not at the archive root" }
-          if (-not ($list -match "config\.txt")) { throw "config.txt is not at the archive root" }
-          "size = {0:N1} MB" -f ((Get-Item $out).Length / 1MB)
-
-          (Get-FileHash $out -Algorithm SHA256).Hash.ToLower() + "  YMCL-$env:VERSION-win-x64.exe" |
-            Set-Content -Encoding ASCII "SHA256SUMS-sfx.txt"
-          Get-Content "SHA256SUMS-sfx.txt"
+          Get-ChildItem "C:\Program Files (x86)\WiX Toolset v3.14\bin" -Filter "*.exe" | Select-Object -First 3
+      - name: packageExe
+        shell: bash
+        env:
+          GRADLE_OPTS: -Xmx3g
+        run: ./gradlew :composeApp:packageExe -Pymcl.version=$VERSION --no-daemon --stacktrace
+      - name: Collect artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l composeApp/build/compose/binaries/main/exe/ || true
+          SRC=$(ls composeApp/build/compose/binaries/main/exe/*.exe | head -1)
+          cp "$SRC" "YMCL-${VERSION}-win-x64-setup.exe"
+          sha256sum "YMCL-${VERSION}-win-x64-setup.exe" > SHA256SUMS-installer.txt
+          cat SHA256SUMS-installer.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: YMCL-windows-x64-sfx
+          name: YMCL-windows-x64-installer
           path: |
-            YMCL-*-win-x64.exe
-            SHA256SUMS-sfx.txt
+            YMCL-*-win-x64-setup.exe
+            SHA256SUMS-installer.txt
           retention-days: 14
 
   linux-appimage:
@@ -295,7 +244,7 @@ jobs:
   release:
     name: Publish GitHub Release (v* tags only)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, windows-portable, windows-sfx, linux-appimage]
+    needs: [test, windows-portable, windows-installer, linux-appimage]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -310,7 +259,7 @@ jobs:
           set -eu
           cd artifacts
           : > SHA256SUMS
-          for f in YMCL-*.zip YMCL-*.exe YMCL-*.AppImage; do
+          for f in YMCL-*.zip YMCL-*-setup.exe YMCL-*.AppImage; do
             [ -e "$f" ] || continue
             sha256sum "$f" >> SHA256SUMS
           done
@@ -336,7 +285,7 @@ jobs:
             Manual Windows checks: see `docs/p8-manual-checklist.md`.
           files: |
             artifacts/YMCL-*.zip
-            artifacts/YMCL-*.exe
+            artifacts/YMCL-*-setup.exe
             artifacts/YMCL-*.AppImage
             artifacts/SHA256SUMS
           fail_on_unmatched_files: false

@@ -85,7 +85,7 @@ compose.desktop {
     application {
         mainClass = "dev.mayo.ymcl.DesktopMainKt"
         nativeDistributions {
-            targetFormats(TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb)
             packageName = "YMCL"
             packageVersion = ymclVersion
 
@@ -121,6 +121,13 @@ compose.desktop {
             windows {
                 iconFile.set(project.file("../design/logo/ymcl-mark-dark.ico"))
                 console = project.hasProperty("ymcl.console")
+                // Single-file installer (WiX). perUserInstall keeps it elevation-free,
+                // and upgradeUuid is what lets a newer build replace an older one.
+                perUserInstall = true
+                dirChooser = true
+                shortcut = true
+                menuGroup = "YMCL"
+                upgradeUuid = "5f3d8f0e-2b0a-4c8e-9a41-1e6f7b2c9d31"
             }
             linux {
                 iconFile.set(project.file("../design/logo/ymcl-mark-light-512.png"))
